@@ -16,7 +16,7 @@ import {
 import type { GuideData, DayMealSlot } from '@/lib/pdf/ClientGuideDocument'
 import { parseNutritionistGuidelines } from '@/lib/pdf/parseNutritionistGuidelines'
 import { selectRecipesForPatient } from '@/lib/pdf/matchRecipes'
-import { reshapeRoadmapIntoMonths } from '@/lib/pdf/reshapeRoadmap'
+import { reshapeRoadmapIntoMonths, type WeeklyPlan } from '@/lib/pdf/reshapeRoadmap'
 import { getSlotRecipes } from '@/lib/pdf/weekRecipes'
 import { renderMarkdownBold } from '@/lib/renderMarkdownBold'
 import { splitRecipeLines } from '@/lib/recipeText'
@@ -47,6 +47,20 @@ function asPhrase(sentence: string): string {
 
 function todayISO(): string {
   return new Date().toISOString().slice(0, 10)
+}
+
+// Roadmaps don't store an explicit start date, so a week's "Sunday" is
+// anchored to the real calendar Sunday of the week the roadmap was created
+// in — Week 2's Monday is then just +7 days +1 from that same anchor. This
+// is what makes each DAY_LABELS tab (and its checkbox) a genuine, distinct
+// calendar date instead of every day silently sharing today's checkin.
+function weekSundayISO(createdAtISO: string): string {
+  const dateOnly = createdAtISO.slice(0, 10)
+  const d = new Date(`${dateOnly}T00:00:00Z`)
+  return shiftDateISO(dateOnly, -d.getUTCDay())
+}
+function dateForWeekDay(createdAtISO: string, weekNumber: number, dayIndex: number): string {
+  return shiftDateISO(weekSundayISO(createdAtISO), (weekNumber - 1) * 7 + dayIndex)
 }
 
 type Checkin = { week_number: number; action_index: number; checkin_date: string }
@@ -163,11 +177,8 @@ export default function PulseTemplate({ roadmapId, data, initialCheckins }: { ro
   const lifestyleBullets = useMemo(() => parseBullets(data.roadmap.lifestyle_guidelines), [data.roadmap.lifestyle_guidelines])
 
   const months = useMemo(() => reshapeRoadmapIntoMonths(data.roadmap.weekly_schedule).filter((m) => m.planned), [data.roadmap.weekly_schedule])
-  const totalActionsInPlan = useMemo(() => months.reduce((n, m) => n + m.weeks.reduce((nn, w) => nn + (w.actions?.length ?? 0), 0), 0), [months])
 
   const [checkins, setCheckins] = useState<Checkin[]>(initialCheckins)
-  const goalsDone = useMemo(() => new Set(checkins.map((c) => `${c.week_number}:${c.action_index}`)).size, [checkins])
-  const adherencePct = totalActionsInPlan > 0 ? Math.round((goalsDone / totalActionsInPlan) * 100) : 0
 
   const weekMealMatches = useMemo(() => selectRecipesForPatient(
     { primaryConcern: data.patient.primary_concern || '', dietProtocol: parsed.dietProtocol },
@@ -188,30 +199,58 @@ export default function PulseTemplate({ roadmapId, data, initialCheckins }: { ro
     let cursor = dateSet.has(today) ? today : shiftDateISO(today, -1)
     while (dateSet.has(cursor)) { streak++; cursor = shiftDateISO(cursor, -1) }
     const doneKeys = new Set(checkins.map((c) => `${c.week_number}:${c.action_index}`))
+    // A week with a real day-by-day breakdown (WeeklyPlan.days) tracks
+    // completion per real calendar day instead of "done on any day counts"
+    // — each of the 7 days is a genuinely different task now, so a checkin
+    // only counts if it actually falls on that day's own real date. A
+    // legacy week (no `days`) keeps the old date-agnostic counting exactly
+    // as before, so older roadmaps' numbers never change underneath them.
+    const weekStats = (w: WeeklyPlan) => {
+      if (w.days && w.days.length > 0) {
+        const validDates = new Set(DAY_LABELS.map((_, i) => dateForWeekDay(data.createdAt, w.week_number, i)))
+        const perDay = w.days[0]?.length ?? w.actions?.length ?? 0
+        const total = w.days.reduce((n, d) => n + d.length, 0)
+        const done = checkins.filter((c) => c.week_number === w.week_number && c.action_index < perDay && validDates.has(c.checkin_date)).length
+        return { total, done }
+      }
+      const total = w.actions?.length ?? 0
+      const done = (w.actions ?? []).filter((_, i) => doneKeys.has(`${w.week_number}:${i}`)).length
+      return { total, done }
+    }
     const monthStats = months.map((m) => {
-      const total = m.weeks.reduce((n, w) => n + (w.actions?.length ?? 0), 0)
-      const done = m.weeks.reduce((n, w) => n + (w.actions ?? []).filter((_, i) => doneKeys.has(`${w.week_number}:${i}`)).length, 0)
+      const stats = m.weeks.map(weekStats)
+      const total = stats.reduce((n, s) => n + s.total, 0)
+      const done = stats.reduce((n, s) => n + s.done, 0)
       return { monthNumber: m.monthNumber, monthLabel: m.monthLabel, doneActions: done, totalActions: total, pct: total > 0 ? Math.round((done / total) * 100) : 0 }
     })
     const bestMonth = monthStats.reduce<typeof monthStats[number] | null>((best, m) => (m.doneActions > 0 && m.pct > (best?.pct ?? -1) ? m : best), null)
     return { streak, totalDaysLogged: dateSet.size, monthStats, bestMonth }
-  }, [checkins, months, today])
+  }, [checkins, months, today, data.createdAt])
+
+  // Derived from the exact same per-month totals "Track your progress"
+  // shows (never recomputed separately) — the "goals accomplished" stat can
+  // never silently disagree with it.
+  const totalActionsInPlan = progress.monthStats.reduce((n, m) => n + m.totalActions, 0)
+  const goalsDone = progress.monthStats.reduce((n, m) => n + m.doneActions, 0)
+  const adherencePct = totalActionsInPlan > 0 ? Math.round((goalsDone / totalActionsInPlan) * 100) : 0
 
   const checkedSet = useMemo(() => new Set(checkins.map((c) => `${c.week_number}:${c.action_index}:${c.checkin_date}`)), [checkins])
 
-  async function toggleGoal(weekNumber: number, actionIndex: number) {
-    const key = `${weekNumber}:${actionIndex}:${today}`
+  // `date` is the specific day-tab's own real calendar date (see
+  // dateForWeekDay above), not always today — each day tracks independently.
+  async function toggleGoal(weekNumber: number, actionIndex: number, date: string) {
+    const key = `${weekNumber}:${actionIndex}:${date}`
     const wasChecked = checkedSet.has(key)
     const revert = () => setCheckins((prev) => wasChecked
-      ? [...prev, { week_number: weekNumber, action_index: actionIndex, checkin_date: today }]
-      : prev.filter((c) => !(c.week_number === weekNumber && c.action_index === actionIndex && c.checkin_date === today)))
+      ? [...prev, { week_number: weekNumber, action_index: actionIndex, checkin_date: date }]
+      : prev.filter((c) => !(c.week_number === weekNumber && c.action_index === actionIndex && c.checkin_date === date)))
     setCheckins((prev) => wasChecked
-      ? prev.filter((c) => !(c.week_number === weekNumber && c.action_index === actionIndex && c.checkin_date === today))
-      : [...prev, { week_number: weekNumber, action_index: actionIndex, checkin_date: today }])
+      ? prev.filter((c) => !(c.week_number === weekNumber && c.action_index === actionIndex && c.checkin_date === date))
+      : [...prev, { week_number: weekNumber, action_index: actionIndex, checkin_date: date }])
     try {
       const r = await fetch(`/api/roadmaps/${roadmapId}/checkins`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ week_number: weekNumber, action_index: actionIndex, date: today }),
+        body: JSON.stringify({ week_number: weekNumber, action_index: actionIndex, date }),
       })
       if (!r.ok) revert()
     } catch {
@@ -269,6 +308,8 @@ export default function PulseTemplate({ roadmapId, data, initialCheckins }: { ro
 
   const [openService, setOpenService] = useState<number | null>(null)
   const [openFaq, setOpenFaq] = useState<number | null>(null)
+  const [founderOpen, setFounderOpen] = useState(false)
+  const [coachOpen, setCoachOpen] = useState(false)
 
   const superfoodImage = useMemo(() => matchGuideImageDistinct('superfood nutrition weekly pick seasonal', data.imageBank, new Set()), [data.imageBank])
 
@@ -299,6 +340,10 @@ export default function PulseTemplate({ roadmapId, data, initialCheckins }: { ro
     clone.querySelectorAll('[data-toc-trigger]').forEach((el) => el.setAttribute('onclick', 'clpToggleToc()'))
     clone.querySelectorAll('[data-toc-link]').forEach((el) => el.setAttribute('onclick', 'clpCloseToc()'))
     clone.querySelectorAll('[data-toc-panel]').forEach((el) => ((el as HTMLElement).style.display = 'none'))
+    clone.querySelectorAll('[data-founder-trigger]').forEach((el) => el.setAttribute('onclick', 'clpToggleFounder()'))
+    clone.querySelectorAll('[data-founder-body]').forEach((el) => ((el as HTMLElement).style.display = 'none'))
+    clone.querySelectorAll('[data-coach-trigger]').forEach((el) => el.setAttribute('onclick', 'clpToggleCoach()'))
+    clone.querySelectorAll('[data-coach-body]').forEach((el) => ((el as HTMLElement).style.display = 'none'))
     clone.querySelectorAll('[data-goal-toggle]').forEach((el) => {
       const key = (el.getAttribute('data-goal-toggle') || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'")
       el.setAttribute('onclick', `toggleGoalExport('${key}', this)`)
@@ -309,7 +354,7 @@ export default function PulseTemplate({ roadmapId, data, initialCheckins }: { ro
     })
     clone.querySelectorAll('[style*="position: sticky"]').forEach((el) => ((el as HTMLElement).style.position = 'static'))
 
-    const monthsData = months.map((m) => ({ monthNumber: m.monthNumber, monthLabel: m.monthLabel, weeks: m.weeks.map((w) => ({ week_number: w.week_number, totalActions: w.actions?.length ?? 0 })) }))
+    const monthsData = months.map((m) => ({ monthNumber: m.monthNumber, monthLabel: m.monthLabel, weeks: m.weeks.map((w) => ({ week_number: w.week_number, totalActions: w.days?.length ? w.days.reduce((n, d) => n + d.length, 0) : (w.actions?.length ?? 0) })) }))
     const script = buildInlineExportScript({
       roadmapId, monthsData,
       colors: { ink: PULSE.ink, inkSoft: PULSE.inkSoft, muted: PULSE.muted, accent: PULSE.accent, accentSoft: PULSE.accentSoft, border: PULSE.border, onAccent: '#fff' },
@@ -340,6 +385,18 @@ export default function PulseTemplate({ roadmapId, data, initialCheckins }: { ro
     URL.revokeObjectURL(url)
   }
 
+  // No visible download button on the patient-facing page — a patient just
+  // tracks live here. A coach can still pull an offline copy for themselves
+  // from the patient's page in the app, which links here with ?download=1
+  // to trigger this same download automatically, no button needed.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('download') === '1') {
+      downloadDashboard()
+      window.history.replaceState(null, '', window.location.pathname)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   return (
     <div id="pulse-export-root" style={{ background: PULSE.bg, minHeight: '100vh', fontFamily: "'Plus Jakarta Sans', sans-serif", color: PULSE.ink, WebkitFontSmoothing: 'antialiased' }}>
       <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -365,10 +422,6 @@ export default function PulseTemplate({ roadmapId, data, initialCheckins }: { ro
                 ))}
               </div>
             </div>
-            <button onClick={downloadDashboard} data-no-export
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0, padding: '7px 14px', borderRadius: 20, border: 'none', background: PULSE.accent, color: '#fff', fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}>
-              <Download size={13} /> Download your plan
-            </button>
           </div>
         </div>
       </div>
@@ -386,34 +439,42 @@ export default function PulseTemplate({ roadmapId, data, initialCheckins }: { ro
           </div>
         </Card>
 
-        {/* Founder's note */}
-        <Card id="founder" hidden={isHidden('founder')}>
+        {/* Founder's note — round photo, tap to reveal the note */}
+        <Card id="founder" hidden={isHidden('founder')} style={{ textAlign: 'center' }}>
           <Eyebrow>A note from the founder</Eyebrow>
           <SecTitle icon={<HeartPulse size={20} />}>Founder&apos;s note</SecTitle>
-          <div style={{ marginTop: 16, fontSize: '0.92rem', lineHeight: 1.7, color: PULSE.inkSoft }}>
+          <button data-founder-trigger onClick={() => setFounderOpen((v) => !v)}
+            style={{ width: 76, height: 76, borderRadius: 38, background: PULSE.accent, color: '#fff', border: 'none', cursor: 'pointer', fontSize: 20, fontWeight: 700, margin: '16px auto 10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            RS
+          </button>
+          <div style={{ fontSize: '0.95rem', fontWeight: 700, color: PULSE.ink }}>Roshni Sanghvi</div>
+          <div style={{ fontSize: '0.72rem', letterSpacing: '0.06em', color: PULSE.muted, textTransform: 'uppercase', marginBottom: 8 }}>Founder, Clinic Living Plus</div>
+          <div style={{ fontSize: '0.75rem', color: PULSE.muted }}>Tap the photo to read the note</div>
+          <div data-founder-body style={{ display: founderOpen ? 'block' : 'none', textAlign: 'left', marginTop: 16, fontSize: '0.92rem', lineHeight: 1.7, color: PULSE.inkSoft }}>
             <p>{firstName},</p>
-            <p>There are eleven people in this building who already know something about you.</p>
-            <p>Not just your name, though it&apos;s already underlined twice in your file. Someone has read the notes from your consult call. Someone already knows which foods actually excite you, the dish you&apos;d genuinely look forward to, not just tolerate. And if you&apos;ve already walked through our doors before today, one of us probably remembers exactly where you sat.</p>
-            <p>Your wellness coach said a small, quiet word to herself before she uploaded this document, the kind of thing she does for every plan, whether or not anyone ever finds out. Your doctor has already opened a new tab on her computer, right next to your history. It&apos;s empty for now. She&apos;s waiting to fill it with everything you&apos;re about to do.</p>
-            <p>Here&apos;s the part I want you to actually believe: we are genuinely excited for you. Not in the polite, clinical, thank-you-for-choosing-us way. In the way you&apos;d be excited watching someone you love finally get somewhere they&apos;ve been trying to reach for years. Every small win on the way to {asPhrase(data.goalLabel.toLowerCase())}, the first night you sleep straight through, the first craving that doesn&apos;t win, the first lab report that makes your doctor sit up a little straighter, somebody here is going to see it and quietly punch the air.</p>
-            <p>None of that is a metaphor. It&apos;s Tuesday-morning-huddle real.</p>
-            <p>A year before I started Clinic Living Plus, I was the patient across the table, asking a question and getting an answer that didn&apos;t hold up when I looked closer. That gap, between what people are told and what&apos;s actually true about their own body, is the entire reason this place exists.</p>
-            <p>So here&apos;s what I can promise: this document was not templated. A coach spent ninety real minutes listening to your actual life before a single recipe in here was chosen. What happens next is mostly on you. What happens around you, the noticing, the small adjustments, the quiet cheering at every step, has already begun.</p>
-            <p>Come find us when something in here surprises you. We&apos;d love to hear it.</p>
-            <p style={{ marginTop: 16, marginBottom: 0, fontWeight: 700, fontSize: '0.95rem', color: PULSE.ink }}>Roshni Sanghvi</p>
-            <p style={{ marginTop: 2, fontSize: '0.72rem', letterSpacing: '0.06em', color: PULSE.muted, textTransform: 'uppercase' }}>Founder, Clinic Living Plus</p>
+            <p>This plan wasn&apos;t templated, a coach spent real time on your actual life before a single recommendation in here was chosen.</p>
+            <p>We&apos;ll be watching for every small win on the way to {asPhrase(data.goalLabel.toLowerCase())}. That&apos;s not a formality here, it&apos;s the whole point of this place.</p>
+            <p>Come find us when something in here surprises you, or doesn&apos;t sit right. We&apos;d love to hear it.</p>
           </div>
         </Card>
 
-        {/* Coach */}
+        {/* Coach — photo, name, and designation stay visible; a personal
+            quote sits behind a tap on the photo, same as the founder's
+            note above. */}
         {data.coach && (
           <Card id="coach" hidden={isHidden('coach')} style={{ display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap' }}>
-            <div style={{ width: 56, height: 56, borderRadius: 28, flexShrink: 0, background: data.coach.photo_url ? `url(${data.coach.photo_url}) center/cover` : PULSE.accentSoft, border: `1px solid ${PULSE.border}` }} />
+            <button data-coach-trigger onClick={() => data.coachQuote && setCoachOpen((v) => !v)}
+              style={{ width: 56, height: 56, borderRadius: 28, flexShrink: 0, background: data.coach.photo_url ? `url(${data.coach.photo_url}) center/cover` : PULSE.accentSoft, border: `1px solid ${PULSE.border}`, padding: 0, cursor: data.coachQuote ? 'pointer' : 'default' }} />
             <div>
               <Eyebrow>Your coach</Eyebrow>
               <div style={{ fontSize: '1.05rem', fontWeight: 700, marginTop: -4 }}>{data.coach.full_name}</div>
               <div style={{ fontSize: '0.82rem', color: PULSE.muted, marginTop: 2 }}>{data.coach.designation}</div>
-              {data.coachQuote && <div style={{ marginTop: 8, fontStyle: 'italic', color: PULSE.accentDeep, fontSize: '0.88rem', maxWidth: 560 }}>&ldquo;{renderMarkdownBold(data.coachQuote)}&rdquo;</div>}
+              {data.coachQuote && (
+                <>
+                  <div style={{ fontSize: '0.72rem', color: PULSE.muted, marginTop: 6 }}>Tap the photo for a note from {coachFirst}</div>
+                  <div data-coach-body style={{ display: coachOpen ? 'block' : 'none', marginTop: 6, fontStyle: 'italic', color: PULSE.accentDeep, fontSize: '0.88rem', maxWidth: 560 }}>&ldquo;{renderMarkdownBold(data.coachQuote)}&rdquo;</div>
+                </>
+              )}
             </div>
           </Card>
         )}
@@ -444,26 +505,29 @@ export default function PulseTemplate({ roadmapId, data, initialCheckins }: { ro
         {/* How to use this guide + Your why */}
         <Card id="howto" hidden={isHidden('howto')}>
           <Eyebrow>Getting oriented</Eyebrow>
-          <SecTitle icon={<HelpCircle size={20} />}>How to use this guide</SecTitle>
-          <p style={{ marginTop: 14, marginBottom: 18, fontSize: '0.92rem', lineHeight: 1.6, color: PULSE.inkSoft }}>This page is built to be opened often, not read once and forgotten. Here&apos;s where everything lives:</p>
+          <SecTitle icon={<HelpCircle size={20} />}>How to use your plan</SecTitle>
+          <p style={{ marginTop: 14, marginBottom: 18, fontSize: '0.92rem', fontWeight: 700, color: PULSE.accent }}>Follow → Track → Adjust</p>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
             {[
-              { title: 'Your roadmap', text: 'Tap a month, then a week, to see that week’s goals. Tap a meal slot to see the recipes picked for you.' },
-              { title: 'Check off as you go', text: 'Tap a goal each day you actually do it. It’s tracked under “Track your progress” below, so ' + coachFirst + ' can see real adherence before your next session, not a guess.' },
-              { title: 'Recipes update as you go', text: 'Matched to your notes and diet. If one looks off or missing, tell ' + coachFirst + ' rather than skipping it.' },
-              { title: 'Supplements, if any', text: 'A supplement table only shows up here once ' + coachFirst + ' has reviewed and confirmed it. If that section is empty, none is prescribed yet.' },
-              { title: 'When in doubt, ask', text: 'If anything here feels unclear or off, reach ' + coachFirst + ' before improvising, that’s exactly what they’re there for.' },
-            ].map(({ title, text }) => (
-              <div key={title} style={{ background: PULSE.bg, border: `1px solid ${PULSE.border}`, borderRadius: 14, padding: '12px 14px' }}>
-                <div style={{ fontWeight: 700, fontSize: '0.88rem', marginBottom: 4, color: PULSE.ink }}>{title}</div>
-                <div style={{ fontSize: '0.83rem', color: PULSE.muted, lineHeight: 1.55 }}>{text}</div>
+              { icon: MapPin, title: 'This week', text: 'Check your goals and meals for the week.' },
+              { icon: CheckCircle2, title: 'Each day', text: 'Tick off what you complete.' },
+              { icon: HelpCircle, title: 'Need help?', text: 'Message ' + coachFirst + ' if something doesn’t work for you.' },
+            ].map(({ icon: Icon, title, text }) => (
+              <div key={title} style={{ display: 'flex', gap: 12, alignItems: 'flex-start', background: PULSE.bg, border: `1px solid ${PULSE.border}`, borderRadius: 14, padding: '12px 14px' }}>
+                <div style={{ width: 34, height: 34, borderRadius: 9, background: PULSE.accentSoft, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <Icon size={16} color={PULSE.accent} />
+                </div>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: '0.88rem', marginBottom: 4, color: PULSE.ink }}>{title}</div>
+                  <div style={{ fontSize: '0.83rem', color: PULSE.muted, lineHeight: 1.55 }}>{text}</div>
+                </div>
               </div>
             ))}
           </div>
           <div style={{ marginTop: 24, paddingTop: 20, borderTop: `1px solid ${PULSE.border}` }}>
             <Eyebrow>Your why</Eyebrow>
             {data.whyReflection ? (
-              <p style={{ fontSize: '0.92rem', lineHeight: 1.65, color: PULSE.inkSoft }}>{firstName}, from what you shared with us: {renderMarkdownBold(data.whyReflection)}</p>
+              <p style={{ fontSize: '0.92rem', lineHeight: 1.65, color: PULSE.inkSoft }}>{renderMarkdownBold(data.whyReflection)}</p>
             ) : (
               <p style={{ fontSize: '0.88rem', color: PULSE.muted }}>Not filled in yet.</p>
             )}
@@ -511,9 +575,10 @@ export default function PulseTemplate({ roadmapId, data, initialCheckins }: { ro
                       <div style={{ marginBottom: 24 }}>
                         <span style={{ fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: PULSE.accent }}>Sunday to Saturday, this week&apos;s goals</span>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
-                          {DAY_LABELS.map((day) => {
+                          {DAY_LABELS.map((day, dayIndex) => {
                             const dayId = `${w.week_number}-${day}`
                             const isDayOpen = openDay === dayId
+                            const dayDate = dateForWeekDay(data.createdAt, w.week_number, dayIndex)
                             return (
                               <div key={day} style={{ border: `1px solid ${PULSE.border}`, borderRadius: 10, overflow: 'hidden' }}>
                                 <button data-day-trigger={dayId} onClick={() => setOpenDay(isDayOpen ? null : dayId)}
@@ -523,10 +588,10 @@ export default function PulseTemplate({ roadmapId, data, initialCheckins }: { ro
                                 </button>
                                 <div data-day-body={dayId} style={{ display: isDayOpen ? 'block' : 'none', padding: '0 14px 14px' }}>
                                   <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-                                    {(w.actions ?? []).map((action, ai) => {
-                                      const checked = checkedSet.has(`${w.week_number}:${ai}:${today}`)
+                                    {(w.days?.[dayIndex] ?? w.actions ?? []).map((action, ai) => {
+                                      const checked = checkedSet.has(`${w.week_number}:${ai}:${dayDate}`)
                                       return (
-                                        <li key={ai} data-goal-toggle={`${w.week_number}:${ai}`} onClick={() => toggleGoal(w.week_number, ai)}
+                                        <li key={ai} data-goal-toggle={`${w.week_number}:${ai}:${dayDate}`} onClick={() => toggleGoal(w.week_number, ai, dayDate)}
                                           style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer', marginBottom: 8, padding: '2px 0' }}>
                                           <span data-goal-icon-done style={{ display: checked ? 'inline-flex' : 'none', flexShrink: 0, marginTop: 2 }}><CheckCircle2 size={16} color={PULSE.accent} /></span>
                                           <span data-goal-icon-undone style={{ display: checked ? 'none' : 'inline-flex', flexShrink: 0, marginTop: 2 }}><Circle size={16} color={PULSE.muted} /></span>
@@ -726,8 +791,8 @@ export default function PulseTemplate({ roadmapId, data, initialCheckins }: { ro
           <Eyebrow>Fresh each week</Eyebrow>
           <SecTitle icon={<Sparkles size={20} />}>Superfood of the week</SecTitle>
           {superfoodImage && <img src={superfoodImage.image_url} alt={superfoodImage.label} style={{ width: '100%', height: 180, objectFit: 'cover', borderRadius: 14, margin: '16px 0' }} />}
-          <p style={{ fontSize: '0.9rem', lineHeight: 1.6, color: PULSE.inkSoft, marginTop: superfoodImage ? 0 : 16 }}>{coachFirst} picks this fresh each week around what&apos;s in season and what&apos;s actually useful for where you are right now, rather than a fixed pick that goes stale.</p>
-          <p style={{ fontSize: '0.82rem', color: PULSE.muted, marginTop: 6 }}>You&apos;ll get this alongside your recipes each week, with a short note on why it was chosen for you specifically.</p>
+          <div style={{ fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: PULSE.accent, marginTop: superfoodImage ? 0 : 16, marginBottom: 4 }}>Why it&apos;s here</div>
+          <p style={{ fontSize: '0.9rem', lineHeight: 1.6, color: PULSE.inkSoft, marginBottom: 0 }}>A seasonal food picked by {coachFirst} to support this week&apos;s plan.</p>
         </Card>
 
         {/* Shopping list */}
@@ -892,15 +957,23 @@ export default function PulseTemplate({ roadmapId, data, initialCheckins }: { ro
                 {data.nextAppointment.time && ` · ${new Date(`2000-01-01T${data.nextAppointment.time}`).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}`}
                 {data.nextAppointment.mode && ` · ${data.nextAppointment.mode}`}
               </div>
-              <p style={{ color: PULSE.inkSoft, fontSize: '0.89rem', lineHeight: 1.6 }}>Please continue following your personalized plan as recommended. Keep track of any changes, questions, or concerns so they can be discussed during your next visit.</p>
-              <p style={{ color: PULSE.inkSoft, fontSize: '0.89rem', lineHeight: 1.6 }}>If you experience any unexpected or worsening symptoms, have difficulty following your plan, or are unsure about any recommendations, please contact our team before your scheduled appointment.</p>
+              <p style={{ color: PULSE.inkSoft, fontSize: '0.89rem', lineHeight: 1.6, marginBottom: 6 }}>Contact your care team if you:</p>
+              <ul style={{ margin: '0 0 10px', paddingLeft: 20, color: PULSE.inkSoft, fontSize: '0.89rem', lineHeight: 1.6 }}>
+                <li>Have questions about your plan</li>
+                <li>Are struggling to follow a recommendation</li>
+                <li>Notice an unexpected change in how you feel</li>
+              </ul>
+              <p style={{ color: PULSE.inkSoft, fontSize: '0.89rem', lineHeight: 1.6 }}><strong>Emergency?</strong> Seek immediate medical care.</p>
             </div>
           ) : (
             <div style={{ marginTop: 16 }}>
-              <p style={{ color: PULSE.inkSoft, fontSize: '0.89rem', lineHeight: 1.6 }}>Continue following your personalized care plan as recommended.</p>
-              <p style={{ color: PULSE.inkSoft, fontSize: '0.89rem', lineHeight: 1.6 }}>Keep track of your progress and any questions or concerns.</p>
-              <p style={{ color: PULSE.inkSoft, fontSize: '0.89rem', lineHeight: 1.6 }}>In a medical emergency, seek immediate emergency medical care.</p>
-              <p style={{ color: PULSE.inkSoft, fontSize: '0.89rem', lineHeight: 1.6 }}>Contact our team if you need guidance or notice any unexpected changes in your health.</p>
+              <p style={{ color: PULSE.inkSoft, fontSize: '0.89rem', lineHeight: 1.6, marginBottom: 6 }}>Contact your care team if you:</p>
+              <ul style={{ margin: '0 0 10px', paddingLeft: 20, color: PULSE.inkSoft, fontSize: '0.89rem', lineHeight: 1.6 }}>
+                <li>Have questions about your plan</li>
+                <li>Are struggling to follow a recommendation</li>
+                <li>Notice an unexpected change in how you feel</li>
+              </ul>
+              <p style={{ color: PULSE.inkSoft, fontSize: '0.89rem', lineHeight: 1.6 }}><strong>Emergency?</strong> Seek immediate medical care.</p>
             </div>
           )}
           {data.coach?.email && (

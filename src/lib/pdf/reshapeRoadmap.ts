@@ -10,6 +10,12 @@ export type WeeklyPlan = {
   focus_theme: string
   cause: string
   actions: string[]
+  // Optional day-by-day escalation of `actions` — 7 entries (Sunday through
+  // Saturday), each a same-length array of that day's short, progressively
+  // harder version of every action above. Absent on roadmaps generated
+  // before this existed; those keep showing the same `actions` every day,
+  // exactly as before — this is additive, never a breaking change.
+  days?: string[][]
   milestone?: string
   // Free text the coach types/pastes for this specific week — not AI-generated.
   // Finalized in the wellness-guide preview before the PDF is generated.

@@ -97,14 +97,28 @@ function asPhrase(sentence: string): string {
   return sentence.trim().replace(/\.+$/, '')
 }
 
+// Roadmaps don't store an explicit start date, so a week's "Sunday" is
+// anchored to the real calendar Sunday of the week the roadmap was created
+// in — Week 2's Monday is then just +7 days +1 from that same anchor. This
+// is what makes each DAY_LABELS tab (and its checkbox) a genuine, distinct
+// calendar date instead of every day silently sharing today's checkin.
+function weekSundayISO(createdAtISO: string): string {
+  const dateOnly = createdAtISO.slice(0, 10)
+  const d = new Date(`${dateOnly}T00:00:00Z`)
+  return shiftDateISO(dateOnly, -d.getUTCDay())
+}
+function dateForWeekDay(createdAtISO: string, weekNumber: number, dayIndex: number): string {
+  return shiftDateISO(weekSundayISO(createdAtISO), (weekNumber - 1) * 7 + dayIndex)
+}
+
 // Mirrors the PDF's table of contents exactly — same 15 sections, same
 // order, same labels. "Nutrition guidelines" and "This week's recipes" both
 // point at the power-plates card since that's where the PDF's separate
 // nutrition and recipe pages collapse into one tabbed section here.
-// Sunday through Saturday show the week's goals (same content every day —
-// the goals themselves aren't tracked per calendar day in this app's data
-// model). Recipes are a separate, single section per week — 4 slots
-// matching the recipe bank's own categories directly, not per-day.
+// Sunday through Saturday show the week's goals, each day tracked against
+// its own real calendar date (see dateForWeekDay above). Recipes are a
+// separate, single section per week — 4 slots matching the recipe bank's
+// own categories directly, not per-day.
 const DAY_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 const DAY_MEAL_SLOTS: DayMealSlot[] = ['breakfast', 'lunch', 'dinner', 'snack', 'dessert']
 const SLOT_LABELS: Record<DayMealSlot, string> = { breakfast: 'Breakfast', lunch: 'Lunch', dinner: 'Dinner', snack: 'Snacks', dessert: 'Desserts' }
@@ -396,11 +410,11 @@ function RecipeBody({ recipe, imageUrl }: { recipe: RecipeMatch['recipe']; image
 // pattern used everywhere else in this file for exportability: the static
 // download's toggleGoalExport() just flips which icon is visible and
 // restyles the text, no React re-render required.
-function GoalRow({ weekNumber, actionIndex, action, checked, onToggle }: {
-  weekNumber: number; actionIndex: number; action: string; checked: boolean; onToggle: () => void
+function GoalRow({ weekNumber, actionIndex, date, action, checked, onToggle }: {
+  weekNumber: number; actionIndex: number; date: string; action: string; checked: boolean; onToggle: () => void
 }) {
   return (
-    <div data-goal-toggle={`${weekNumber}:${actionIndex}`} onClick={onToggle}
+    <div data-goal-toggle={`${weekNumber}:${actionIndex}:${date}`} onClick={onToggle}
       style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer', marginBottom: 7, padding: '2px 0' }}>
       <span data-goal-icon-done style={{ display: checked ? 'inline-flex' : 'none', flexShrink: 0, marginTop: 1 }}>
         <CheckCircle2 size={16} color={C.green} />
@@ -699,6 +713,14 @@ function closeCareExport(){
   var overlay = document.querySelector('[data-care-overlay]');
   if (overlay) overlay.style.display = 'none';
 }
+function toggleFounderExport(){
+  var body = document.querySelector('[data-founder-body]');
+  if (body) body.style.display = (body.style.display === 'block') ? 'none' : 'block';
+}
+function toggleCoachExport(){
+  var body = document.querySelector('[data-coach-body]');
+  if (body) body.style.display = (body.style.display === 'block') ? 'none' : 'block';
+}
 // A goal row shows "done" only for TODAY's real date — same daily-habit
 // semantics as the live app (checkedSet is keyed by today's date there
 // too), not a one-time-forever checkbox. Uses the browser's actual current
@@ -774,10 +796,12 @@ function renderProgressExport(){
 // patient only — not shared with or visible to the coach. It persists to
 // localStorage (so it survives reopening the same file later, even
 // offline) and nowhere else; deliberately no network call back to the app.
+// key is "week:action:date" — date is that day-tab's own real calendar
+// date (baked in at render time), not always today, so each day tracks
+// independently instead of every day-row sharing one checkin.
 function toggleGoalExport(key, el){
   var parts = key.split(':');
-  var week = parseInt(parts[0], 10), action = parseInt(parts[1], 10);
-  var dateStr = clpTodayISO();
+  var week = parseInt(parts[0], 10), action = parseInt(parts[1], 10), dateStr = parts[2];
   var list = clpGetCheckins();
   var idx = -1;
   for (var i = 0; i < list.length; i++) {
@@ -787,21 +811,15 @@ function toggleGoalExport(key, el){
   if (idx >= 0) { list.splice(idx, 1); newDone = false; }
   else { list.push({ week_number: week, action_index: action, checkin_date: dateStr }); newDone = true; }
   clpSetCheckins(list);
-  // The same goal appears once per day of the week (all showing the same
-  // underlying weekly goal) — update every matching row, not just the one
-  // clicked, so they never drift out of sync with each other.
   document.querySelectorAll('[data-goal-toggle="' + key + '"]').forEach(function(row){ clpSetGoalVisual(row, newDone); });
   renderProgressExport();
 }
 function initGoalsExport(){
   var list = clpGetCheckins();
-  var todayStr = clpTodayISO();
+  var doneSet = {};
+  list.forEach(function(c){ doneSet[c.week_number + ':' + c.action_index + ':' + c.checkin_date] = true; });
   document.querySelectorAll('[data-goal-toggle]').forEach(function(el){
-    var key = el.getAttribute('data-goal-toggle');
-    var parts = key.split(':');
-    var week = parseInt(parts[0], 10), action = parseInt(parts[1], 10);
-    var doneToday = list.some(function(c){ return c.week_number === week && c.action_index === action && c.checkin_date === todayStr; });
-    clpSetGoalVisual(el, doneToday);
+    clpSetGoalVisual(el, !!doneSet[el.getAttribute('data-goal-toggle')]);
   });
   renderProgressExport();
 }
@@ -827,6 +845,8 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
   const [openGroceryWeek, setOpenGroceryWeek] = useState<number | null>(null)
   const [boughtItems, setBoughtItems] = useState<Set<string>>(new Set())
   const [openFaq, setOpenFaq] = useState<number | null>(null)
+  const [founderOpen, setFounderOpen] = useState(false)
+  const [coachOpen, setCoachOpen] = useState(false)
   const [tocOpen, setTocOpen] = useState(false)
   const [aiGroceryCache, setAiGroceryCache] = useState<Record<number, GroceryCategory[]>>({})
   const [aiGroceryLoadingWeek, setAiGroceryLoadingWeek] = useState<number | null>(null)
@@ -848,7 +868,9 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
   const [editingWeek, setEditingWeek] = useState<number | null>(null)
   const [recipeSearch, setRecipeSearch] = useState<Partial<Record<DayMealSlot, string>>>({})
   const [theme, setTheme] = useState(data.theme && PALETTES[data.theme] ? data.theme : 'classic')
-  const [template, setTemplate] = useState(data.template === 'almanac' ? 'almanac' : 'classic')
+  const [template, setTemplate] = useState(
+    ['almanac', 'pulse', 'onyx'].includes(data.template) ? data.template : 'classic'
+  )
   const [careServices, setCareServices] = useState(data.careServices || [])
   const [openCareService, setOpenCareService] = useState<number | null>(null)
   const [nextAppointment, setNextAppointment] = useState(data.nextAppointment || { date: '', time: '', mode: '' })
@@ -910,25 +932,27 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
     [checkins]
   )
 
-  async function toggle(weekNumber: number, actionIndex: number) {
-    const key = `${weekNumber}:${actionIndex}:${today}`
+  // `date` is the specific day-tab's own real calendar date (see
+  // dateForWeekDay above), not always today — each day tracks independently.
+  async function toggle(weekNumber: number, actionIndex: number, date: string) {
+    const key = `${weekNumber}:${actionIndex}:${date}`
     const wasChecked = checkedSet.has(key)
     const revert = () => setCheckins((prev) => wasChecked
-      ? [...prev, { week_number: weekNumber, action_index: actionIndex, checkin_date: today }]
-      : prev.filter((c) => !(c.week_number === weekNumber && c.action_index === actionIndex && c.checkin_date === today)))
+      ? [...prev, { week_number: weekNumber, action_index: actionIndex, checkin_date: date }]
+      : prev.filter((c) => !(c.week_number === weekNumber && c.action_index === actionIndex && c.checkin_date === date)))
     // Optimistic update — reconciled below if the server didn't actually
     // persist it; two rapid taps racing is an accepted edge case for a habit
     // checklist, not worth blocking the UI over.
     setCheckins((prev) => wasChecked
-      ? prev.filter((c) => !(c.week_number === weekNumber && c.action_index === actionIndex && c.checkin_date === today))
-      : [...prev, { week_number: weekNumber, action_index: actionIndex, checkin_date: today }])
+      ? prev.filter((c) => !(c.week_number === weekNumber && c.action_index === actionIndex && c.checkin_date === date))
+      : [...prev, { week_number: weekNumber, action_index: actionIndex, checkin_date: date }])
     try {
       // fetch() only rejects on network failure, not on a non-2xx response —
       // a 500 (e.g. the checkins table not existing yet) would otherwise look
       // identical to success and leave the checkbox stuck in the wrong state.
       const r = await fetch(`/api/roadmaps/${roadmapId}/checkins`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ week_number: weekNumber, action_index: actionIndex, date: today }),
+        body: JSON.stringify({ week_number: weekNumber, action_index: actionIndex, date }),
       })
       if (!r.ok) revert()
     } catch {
@@ -986,17 +1010,36 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
       return n
     })()
     const doneKeys = new Set(checkins.map((c) => `${c.week_number}:${c.action_index}`))
-    const totalActionsInPlan = months.reduce((n, m) => n + m.weeks.reduce((nn, w) => nn + (w.actions?.length ?? 0), 0), 0)
-    const goalsDone = doneKeys.size
+    // A week with a real day-by-day breakdown (WeeklyPlan.days) tracks
+    // completion per real calendar day instead of "done on any day counts"
+    // — each of the 7 days is a genuinely different task now, so a checkin
+    // only counts if it actually falls on that day's own real date. A
+    // legacy week (no `days`) keeps the old date-agnostic counting exactly
+    // as before, so older roadmaps' numbers never change underneath them.
+    const weekStats = (w: WeeklyPlan) => {
+      if (w.days && w.days.length > 0) {
+        const validDates = new Set(DAY_LABELS.map((_, i) => dateForWeekDay(data.createdAt, w.week_number, i)))
+        const perDay = w.days[0]?.length ?? w.actions?.length ?? 0
+        const total = w.days.reduce((n, d) => n + d.length, 0)
+        const done = checkins.filter((c) => c.week_number === w.week_number && c.action_index < perDay && validDates.has(c.checkin_date)).length
+        return { total, done }
+      }
+      const total = w.actions?.length ?? 0
+      const done = (w.actions ?? []).filter((_, i) => doneKeys.has(`${w.week_number}:${i}`)).length
+      return { total, done }
+    }
     const monthStats = months.map((m) => {
-      const totalActions = m.weeks.reduce((n, w) => n + (w.actions?.length ?? 0), 0)
-      const doneActions = m.weeks.reduce((n, w) => n + (w.actions ?? []).filter((_, i) => doneKeys.has(`${w.week_number}:${i}`)).length, 0)
+      const stats = m.weeks.map(weekStats)
+      const totalActions = stats.reduce((n, s) => n + s.total, 0)
+      const doneActions = stats.reduce((n, s) => n + s.done, 0)
       const pct = totalActions > 0 ? Math.round((doneActions / totalActions) * 100) : 0
       return { monthNumber: m.monthNumber, monthLabel: m.monthLabel, doneActions, totalActions, pct }
     })
+    const totalActionsInPlan = monthStats.reduce((n, m) => n + m.totalActions, 0)
+    const goalsDone = monthStats.reduce((n, m) => n + m.doneActions, 0)
     const bestMonth = monthStats.reduce<typeof monthStats[number] | null>((best, m) => (m.doneActions > 0 && m.pct > (best?.pct ?? -1) ? m : best), null)
     return { streak, totalDaysLogged: dateSet.size, goalsDone, totalActionsInPlan, monthStats, bestMonth }
-  }, [checkins, months, today])
+  }, [checkins, months, today, data.createdAt])
 
   // Mirrors the PDF's image + recipe selection exactly (same functions, same
   // "no real match beats a fabricated one" discipline) so the dashboard and
@@ -1167,6 +1210,10 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
       el.setAttribute('onclick', `openCareExport('${el.getAttribute('data-care-trigger')}')`)
     })
     clone.querySelectorAll('[data-care-close]').forEach((el) => el.setAttribute('onclick', 'closeCareExport()'))
+    clone.querySelectorAll('[data-founder-trigger]').forEach((el) => el.setAttribute('onclick', 'toggleFounderExport()'))
+    clone.querySelectorAll('[data-founder-body]').forEach((el) => ((el as HTMLElement).style.display = 'none'))
+    clone.querySelectorAll('[data-coach-trigger]').forEach((el) => el.setAttribute('onclick', 'toggleCoachExport()'))
+    clone.querySelectorAll('[data-coach-body]').forEach((el) => ((el as HTMLElement).style.display = 'none'))
     clone.querySelectorAll('[data-care-overlay]').forEach((el) => el.setAttribute('onclick', 'if(event.target===this)closeCareExport()'))
     // The TOC bar's sticky offset (and every section's scroll-margin-top)
     // are tuned to sit below the app's own 60px site header — the
@@ -1180,7 +1227,7 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
     const monthsData: MonthExportData[] = months.map((m) => ({
       monthNumber: m.monthNumber,
       monthLabel: m.monthLabel,
-      weeks: m.weeks.map((w) => ({ week_number: w.week_number, totalActions: w.actions?.length ?? 0 })),
+      weeks: m.weeks.map((w) => ({ week_number: w.week_number, totalActions: w.days?.length ? w.days.reduce((n, d) => n + d.length, 0) : (w.actions?.length ?? 0) })),
     }))
     const title = (data.patient?.full_name || 'Your') + "'s Plan, Clinic Living Plus"
     const html = `<!DOCTYPE html>
@@ -1205,6 +1252,18 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
     a.remove()
     URL.revokeObjectURL(url)
   }
+
+  // No visible download button on the patient-facing page — a patient just
+  // tracks live here. A coach can still pull an offline copy for themselves
+  // from the patient's page in the app, which links here with ?download=1
+  // to trigger this same download automatically, no button needed.
+  useEffect(() => {
+    if (!editable && new URLSearchParams(window.location.search).get('download') === '1') {
+      downloadDashboard()
+      window.history.replaceState(null, '', window.location.pathname)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   return (
     <div id="dashboard-export-root" style={{ background: C.bg, minHeight: '100vh' }}>
@@ -1288,9 +1347,10 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
 
                     <div style={{ ...weekBoxLabel, marginBottom: 10 }}>Sunday to Saturday, this week&apos;s goals</div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
-                      {DAY_LABELS.map((day) => {
+                      {DAY_LABELS.map((day, dayIndex) => {
                         const dayId = `${w.week_number}-${day}`
                         const isOpen = openDay === dayId
+                        const dayDate = dateForWeekDay(data.createdAt, w.week_number, dayIndex)
                         return (
                           <div key={day} style={{ background: C.bg, border: `1px solid ${C.rule}`, borderRadius: 10, overflow: 'hidden' }}>
                             <button data-day-trigger={dayId} onClick={() => setOpenDay(isOpen ? null : dayId)}
@@ -1304,10 +1364,10 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
                               {(w.actions?.length ?? 0) > 0 && (
                                 <>
                                   <div style={{ fontSize: 10, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 700, marginBottom: 4 }}>Micro goals</div>
-                                  {(w.actions ?? []).map((action, actionIndex) => (
-                                    <GoalRow key={actionIndex} weekNumber={w.week_number} actionIndex={actionIndex} action={action}
-                                      checked={checkedSet.has(`${w.week_number}:${actionIndex}:${today}`)}
-                                      onToggle={() => toggle(w.week_number, actionIndex)} />
+                                  {(w.days?.[dayIndex] ?? w.actions ?? []).map((action, actionIndex) => (
+                                    <GoalRow key={actionIndex} weekNumber={w.week_number} actionIndex={actionIndex} date={dayDate} action={action}
+                                      checked={checkedSet.has(`${w.week_number}:${actionIndex}:${dayDate}`)}
+                                      onToggle={() => toggle(w.week_number, actionIndex, dayDate)} />
                                   ))}
                                 </>
                               )}
@@ -1381,7 +1441,7 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
                 ))}
               </div>
             ))}
-            <div style={{ fontSize: 11.5, color: C.muted, marginTop: 16 }}>Tap a goal each day you complete it. Checking today ({today}) tracks it for your coach to review.</div>
+            <div style={{ fontSize: 11.5, color: C.muted, marginTop: 16 }}>Tap a goal on each day's tab to mark it done for that day — your coach sees exactly which days you completed.</div>
           </div>
         </div>
       )}
@@ -1515,41 +1575,55 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
           ) : (
             <div style={{ fontSize: 13.5, color: C.inkSoft, marginTop: 6, maxWidth: 480, marginLeft: 'auto', marginRight: 'auto' }}>{goalLabel}</div>
           )}
-          {editable ? (
-            <a href={`/dashboard/${roadmapId}`} target="_blank" rel="noopener noreferrer"
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 7, marginTop: 16, padding: '10px 20px', borderRadius: 10, border: `1px solid ${C.rule}`, background: C.paper, color: C.ink, fontSize: 13, fontWeight: 700, textDecoration: 'none' }}>
-              <ExternalLink size={15} /> Preview as patient
-            </a>
-          ) : (
-            <button onClick={downloadDashboard} data-no-export
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 7, marginTop: 16, padding: '10px 20px', borderRadius: 10, border: 'none', background: C.accent, color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
-              <Download size={15} /> Download your plan
-            </button>
+          {editable && (
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap', marginTop: 16 }}>
+              <a href={`/dashboard/${roadmapId}`} target="_blank" rel="noopener noreferrer"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '10px 20px', borderRadius: 10, border: `1px solid ${C.rule}`, background: C.paper, color: C.ink, fontSize: 13, fontWeight: 700, textDecoration: 'none' }}>
+                <ExternalLink size={15} /> Preview as patient
+              </a>
+              {/* The patient's own page has no visible download button — this
+                  is how a coach still gets an offline copy for themselves,
+                  opening that same page with ?download=1 to auto-trigger it. */}
+              <a href={`/dashboard/${roadmapId}?download=1`} target="_blank" rel="noopener noreferrer"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '10px 20px', borderRadius: 10, border: 'none', background: C.accent, color: '#fff', fontSize: 13, fontWeight: 700, textDecoration: 'none' }}>
+                <Download size={15} /> Download plan
+              </a>
+            </div>
           )}
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr)', gap: 0 }}>
           {/* Founder's note — same letter as the PDF, personalized with name + goal */}
-          <div id="founder" {...hiddenAttrs('founder')} style={{ ...cardStyle, scrollMarginTop: SECTION_SCROLL_MARGIN, ...hiddenStyle('founder') }}>
+          <div id="founder" {...hiddenAttrs('founder')} style={{ ...cardStyle, textAlign: 'center', scrollMarginTop: SECTION_SCROLL_MARGIN, ...hiddenStyle('founder') }}>
             {editable && <SectionToggle hidden={isHidden('founder')} onToggle={() => toggleSection('founder')} />}
-            <div style={sectionTitleStyle}>Founder&apos;s note</div>
-            <p style={bulletStyle}>{firstName},</p>
-            <p style={bulletStyle}>There are eleven people in this building who already know something about you.</p>
-            <p style={bulletStyle}>Not just your name, though it&apos;s already underlined twice in your file. Someone has read the notes from your consult call. Someone already knows which foods actually excite you, the dish you&apos;d genuinely look forward to, not just tolerate. And if you&apos;ve already walked through our doors before today, one of us probably remembers exactly where you sat.</p>
-            <p style={bulletStyle}>Your wellness coach said a small, quiet word to herself before she uploaded this document, the kind of thing she does for every plan, whether or not anyone ever finds out. Your doctor has already opened a new tab on her computer, right next to your history. It&apos;s empty for now. She&apos;s waiting to fill it with everything you&apos;re about to do.</p>
-            <p style={bulletStyle}>Here&apos;s the part I want you to actually believe: we are genuinely excited for you. Not in the polite, clinical, thank-you-for-choosing-us way. In the way you&apos;d be excited watching someone you love finally get somewhere they&apos;ve been trying to reach for years. Every small win on the way to {asPhrase(goalLabel.toLowerCase())}, the first night you sleep straight through, the first craving that doesn&apos;t win, the first lab report that makes your doctor sit up a little straighter, somebody here is going to see it and quietly punch the air.</p>
-            <p style={bulletStyle}>None of that is a metaphor. It&apos;s Tuesday-morning-huddle real.</p>
-            <p style={bulletStyle}>A year before I started Clinic Living Plus, I was the patient across the table, asking a question and getting an answer that didn&apos;t hold up when I looked closer. That gap, between what people are told and what&apos;s actually true about their own body, is the entire reason this place exists.</p>
-            <p style={bulletStyle}>So here&apos;s what I can promise: this document was not templated. A coach spent ninety real minutes listening to your actual life before a single recipe in here was chosen. What happens next is mostly on you. What happens around you, the noticing, the small adjustments, the quiet cheering at every step, has already begun.</p>
-            <p style={bulletStyle}>Come find us when something in here surprises you. We&apos;d love to hear it.</p>
-            <div style={{ marginTop: 14, fontSize: 13, fontWeight: 700, color: C.ink }}>Roshni Sanghvi</div>
-            <div style={{ fontSize: 11, color: C.muted, letterSpacing: '0.04em' }}>FOUNDER, CLINIC LIVING PLUS</div>
+            <div style={{ ...sectionTitleStyle, justifyContent: 'center' }}>Founder&apos;s note</div>
+            <button data-founder-trigger onClick={() => setFounderOpen((v) => !v)}
+              style={{ width: 72, height: 72, borderRadius: 36, background: C.accent, color: '#fff', border: 'none', cursor: 'pointer', fontSize: 20, fontWeight: 700, fontFamily: 'inherit', margin: '12px auto 10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              RS
+            </button>
+            <div style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>Roshni Sanghvi</div>
+            <div style={{ fontSize: 11, color: C.muted, letterSpacing: '0.04em', marginBottom: 6 }}>FOUNDER, CLINIC LIVING PLUS</div>
+            <div style={{ fontSize: 11.5, color: C.muted }}>Tap the photo to read the note</div>
+            <div data-founder-body style={{ display: (editable || founderOpen) ? 'block' : 'none', textAlign: 'left', marginTop: 16 }}>
+              <p style={bulletStyle}>{firstName},</p>
+              <p style={bulletStyle}>This plan wasn&apos;t templated, a coach spent real time on your actual life before a single recommendation in here was chosen.</p>
+              <p style={bulletStyle}>We&apos;ll be watching for every small win on the way to {asPhrase(goalLabel.toLowerCase())}. That&apos;s not a formality here, it&apos;s the whole point of this place.</p>
+              <p style={bulletStyle}>Come find us when something in here surprises you, or doesn&apos;t sit right. We&apos;d love to hear it.</p>
+            </div>
           </div>
 
-          {/* Coach */}
+          {/* Coach — photo, name, and designation stay visible; a personal
+              quote (when the coach has entered one) sits behind a tap on
+              the photo instead of always showing, same pattern as the
+              founder's note above. */}
           {(data.coach || editable) && (
             <div id="coach" {...hiddenAttrs('coach')} style={{ ...cardStyle, display: 'flex', alignItems: 'center', gap: 16, scrollMarginTop: SECTION_SCROLL_MARGIN, ...hiddenStyle('coach') }}>
-              <div style={{ width: 56, height: 56, borderRadius: 28, flexShrink: 0, background: data.coach?.photo_url ? `url(${data.coach.photo_url}) center/cover` : C.accentSoft, border: `1px solid ${C.rule}` }} />
+              {editable ? (
+                <div style={{ width: 56, height: 56, borderRadius: 28, flexShrink: 0, background: data.coach?.photo_url ? `url(${data.coach.photo_url}) center/cover` : C.accentSoft, border: `1px solid ${C.rule}` }} />
+              ) : (
+                <button data-coach-trigger onClick={() => coachQuote && setCoachOpen((v) => !v)}
+                  style={{ width: 56, height: 56, borderRadius: 28, flexShrink: 0, background: data.coach?.photo_url ? `url(${data.coach.photo_url}) center/cover` : C.accentSoft, border: `1px solid ${C.rule}`, padding: 0, cursor: coachQuote ? 'pointer' : 'default' }} />
+              )}
               <div style={{ flex: 1, minWidth: 0 }}>
                 {editable && <SectionToggle hidden={isHidden('coach')} onToggle={() => toggleSection('coach')} />}
                 {editable ? (
@@ -1568,7 +1642,12 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
                   <>
                     <div style={{ fontSize: 15, fontWeight: 700, color: C.ink }}>{data.coach?.full_name}</div>
                     <div style={{ fontSize: 12, color: C.muted }}>{data.coach?.designation}</div>
-                    {coachQuote && <div style={{ fontSize: 13, color: C.accent, fontStyle: 'italic', marginTop: 6 }}>&ldquo;{renderMarkdownBold(coachQuote)}&rdquo;</div>}
+                    {coachQuote && (
+                      <>
+                        <div style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>Tap the photo for a note from {coachFirst}</div>
+                        <div data-coach-body style={{ display: coachOpen ? 'block' : 'none', fontSize: 13, color: C.accent, fontStyle: 'italic', marginTop: 6 }}>&ldquo;{renderMarkdownBold(coachQuote)}&rdquo;</div>
+                      </>
+                    )}
                   </>
                 )}
               </div>
@@ -1675,15 +1754,13 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
               exactly where to look. */}
           <div id="howto" {...hiddenAttrs('howto')} style={{ ...cardStyle, scrollMarginTop: SECTION_SCROLL_MARGIN, ...hiddenStyle('howto') }}>
             {editable && <SectionToggle hidden={isHidden('howto')} onToggle={() => toggleSection('howto')} />}
-            <div style={sectionTitleStyle}>How to use this guide</div>
-            <p style={{ ...bulletStyle, marginBottom: 16 }}>This page is built to be opened often, not read once and forgotten. Here&apos;s where everything lives:</p>
+            <div style={sectionTitleStyle}>How to use your plan</div>
+            <p style={{ ...bulletStyle, marginBottom: 16, fontWeight: 700, color: C.accent }}>Follow → Track → Adjust</p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
               {[
-                { icon: MapPin, title: 'Your roadmap', text: 'Tap a month, then a week, to see that week’s goals day by day. Tap any day to expand it, and tap a meal slot to see the recipes picked for you.' },
-                { icon: CheckCircle2, title: 'Check off as you go', text: 'Tap a goal each day you actually do it. It’s tracked under “Track your progress” below, so your coach can see real adherence before your next session, not a guess.' },
-                { icon: ChefHat, title: 'Recipes update as you go', text: 'Matched to your notes and diet. If one looks off or missing, tell ' + coachFirst + ' rather than skipping it. New ones appear here automatically, no reprinting needed.' },
-                { icon: Pill, title: 'Supplements, if any', text: 'A supplement table only shows up here once ' + coachFirst + ' has reviewed and confirmed it. If that section is empty, none is prescribed yet.' },
-                { icon: HelpCircle, title: 'When in doubt, ask', text: 'If anything here feels unclear or off, reach ' + coachFirst + ' before improvising, that’s exactly what they’re there for.' },
+                { icon: MapPin, title: 'This week', text: 'Check your goals and meals for the week.' },
+                { icon: CheckCircle2, title: 'Each day', text: 'Tick off what you complete.' },
+                { icon: HelpCircle, title: 'Need help?', text: 'Message ' + coachFirst + ' if something doesn’t work for you.' },
               ].map(({ icon: Icon, title, text }) => (
                 <div key={title} style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
                   <div style={{ width: 32, height: 32, borderRadius: 9, background: C.accentSoft, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -1701,9 +1778,9 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
               {editable ? (
                 <textarea style={{ ...editInputStyle, resize: 'vertical' as const, lineHeight: 1.5 }} rows={3}
                   value={whyReflection} onChange={(e) => setWhyReflection(e.target.value)}
-                  placeholder={`${firstName}, from what you shared with us...`} />
+                  placeholder="1-2 sentences on what this plan is actually for, in their words." />
               ) : whyReflection ? (
-                <p style={bulletStyle}>{firstName}, from what you shared with us: {renderMarkdownBold(whyReflection)}</p>
+                <p style={bulletStyle}>{renderMarkdownBold(whyReflection)}</p>
               ) : (
                 <p style={{ ...bulletStyle, color: C.muted }}>Not filled in yet.</p>
               )}
@@ -1723,7 +1800,7 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 14 }}>
                   {months.map((m) => {
                     const img = monthImages.get(String(m.monthNumber))
-                    const goalCount = m.weeks.reduce((n, w) => n + (w.actions?.length ?? 0), 0)
+                    const goalCount = m.weeks.reduce((n, w) => n + (w.days?.length ? w.days.reduce((nn, d) => nn + d.length, 0) : (w.actions?.length ?? 0)), 0)
                     return (
                       <button key={m.monthNumber} data-month-trigger={m.monthNumber} onClick={() => { setOpenMonth(m.monthNumber); setOpenWeek(null) }}
                         style={{ textAlign: 'left', padding: 0, border: `1px solid ${C.rule}`, borderRadius: 12, overflow: 'hidden', background: C.bg, cursor: 'pointer' }}>
@@ -1929,8 +2006,8 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
             {editable && <SectionToggle hidden={isHidden('superfood')} onToggle={() => toggleSection('superfood')} />}
             <div style={sectionTitleStyle}><Sparkles size={18} color={C.accent} /> Superfood of the week</div>
             {superfoodImage && <img src={superfoodImage.image_url} alt={superfoodImage.label} style={{ width: '100%', height: 150, objectFit: 'cover', borderRadius: 10, marginBottom: 12 }} />}
-            <p style={bulletStyle}>{coachFirst} picks this fresh each week around what&apos;s in season and what&apos;s actually useful for where you are right now, rather than a fixed pick that goes stale.</p>
-            <div style={{ fontSize: 11.5, color: C.muted }}>You&apos;ll get this alongside your recipes each week, with a short note on why it was chosen for you specifically.</div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: C.accent, textTransform: 'uppercase', letterSpacing: '0.03em', marginBottom: 4 }}>Why it&apos;s here</div>
+            <p style={{ ...bulletStyle, marginBottom: 0 }}>A seasonal food picked by {coachFirst} to support this week&apos;s plan.</p>
           </div>
 
           {/* Supplements — only the structured table from a coach-confirmed
@@ -2145,16 +2222,24 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
                   {nextAppointment.time && ` · ${new Date(`2000-01-01T${nextAppointment.time}`).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}`}
                   {nextAppointment.mode && ` · ${nextAppointment.mode}`}
                 </div>
-                <div style={{ fontSize: 11, fontWeight: 700, color: C.accent, textTransform: 'uppercase', marginBottom: 4 }}>Until your next appointment</div>
-                <p style={{ ...bulletStyle, marginBottom: 6 }}>Please continue following your personalized plan as recommended. Keep track of any changes, questions, or concerns so they can be discussed during your next visit.</p>
-                <p style={{ ...bulletStyle, marginBottom: 0 }}>If you experience any unexpected or worsening symptoms, have difficulty following your plan, or are unsure about any recommendations, please contact our team before your scheduled appointment.</p>
+                <div style={{ fontSize: 11, fontWeight: 700, color: C.accent, textTransform: 'uppercase', marginBottom: 8 }}>Until your next appointment</div>
+                <p style={{ ...bulletStyle, marginBottom: 6 }}>Contact your care team if you:</p>
+                <ul style={{ margin: '0 0 8px', paddingLeft: 18 }}>
+                  <li style={{ ...bulletStyle, marginBottom: 3 }}>Have questions about your plan</li>
+                  <li style={{ ...bulletStyle, marginBottom: 3 }}>Are struggling to follow a recommendation</li>
+                  <li style={{ ...bulletStyle, marginBottom: 0 }}>Notice an unexpected change in how you feel</li>
+                </ul>
+                <p style={{ ...bulletStyle, marginBottom: 0 }}><strong>Emergency?</strong> Seek immediate medical care.</p>
               </div>
             ) : (
               <div style={{ background: C.bg, border: `1px solid ${C.rule}`, borderRadius: 10, padding: '12px 14px', marginBottom: 16 }}>
-                <p style={{ ...bulletStyle, marginBottom: 4 }}>Continue following your personalized care plan as recommended.</p>
-                <p style={{ ...bulletStyle, marginBottom: 4 }}>Keep track of your progress and any questions or concerns.</p>
-                <p style={{ ...bulletStyle, marginBottom: 4 }}>In a medical emergency, seek immediate emergency medical care.</p>
-                <p style={{ ...bulletStyle, marginBottom: 0 }}>Contact our team if you need guidance or notice any unexpected changes in your health.</p>
+                <p style={{ ...bulletStyle, marginBottom: 6 }}>Contact your care team if you:</p>
+                <ul style={{ margin: '0 0 8px', paddingLeft: 18 }}>
+                  <li style={{ ...bulletStyle, marginBottom: 3 }}>Have questions about your plan</li>
+                  <li style={{ ...bulletStyle, marginBottom: 3 }}>Are struggling to follow a recommendation</li>
+                  <li style={{ ...bulletStyle, marginBottom: 0 }}>Notice an unexpected change in how you feel</li>
+                </ul>
+                <p style={{ ...bulletStyle, marginBottom: 0 }}><strong>Emergency?</strong> Seek immediate medical care.</p>
               </div>
             )}
           </div>

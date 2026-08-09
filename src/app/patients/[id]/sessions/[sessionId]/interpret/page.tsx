@@ -11,6 +11,7 @@ type WeeklyPlan = {
   focus_theme: string
   cause: string
   actions: string[]
+  days?: string[][]
   milestone?: string
 }
 
@@ -63,6 +64,13 @@ export default function InterpretPage() {
     loadExisting()
   }, [sessionId])
 
+  // Once an existing roadmap loads, default the duration picker to whatever
+  // it's already set to — so refreshing without touching it keeps the same
+  // length, but a coach can still bump it up/down before refreshing.
+  useEffect(() => {
+    if (roadmap?.duration_months) setDuration(roadmap.duration_months)
+  }, [roadmap?.id])
+
   // Same GuideData the patient dashboard and PDF use — fetched fresh
   // whenever a roadmap is generated or regenerated, so the editable preview
   // below always reflects exactly what's in the database.
@@ -96,6 +104,31 @@ export default function InterpretPage() {
     finally { setLoading(false) }
   }
 
+  // Writes fresh AI content into the SAME roadmap row instead of creating a
+  // new one, so the patient's already-shared /dashboard/{roadmapId} link
+  // never breaks — they just see the updated plan next time they open it.
+  // Coach-side settings (template, theme, care team, etc.) aren't touched;
+  // the patient's check-in history for the old content is cleared, since it
+  // wouldn't correspond to anything on the refreshed page anymore.
+  async function refreshPlan() {
+    if (!roadmap) return
+    const ok = window.confirm('Refresh this plan with new AI-generated content?\n\nThis replaces the weekly schedule and clears the patient’s check-in history for it. The dashboard link they already have keeps working, unchanged.')
+    if (!ok) return
+    setLoading(true)
+    setError('')
+    try {
+      const res = await fetch('/api/interpret', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: sessionId, patient_id: patientId, duration_months: duration, refresh_roadmap_id: roadmap.id }),
+      })
+      const json = await res.json()
+      if (!res.ok) { setError(json.error || 'Refresh failed'); return }
+      setRoadmap(json.roadmap)
+    } catch { setError('Network error — try again') }
+    finally { setLoading(false) }
+  }
+
   if (fetching) return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 300 }}>
       <Loader2 size={28} color="#538A22" style={{ animation: 'spin 1s linear infinite' }} />
@@ -120,16 +153,16 @@ export default function InterpretPage() {
             <p style={{ color: '#6b7280', fontSize: 13, marginTop: 3 }}>Generate → edit below → share the dashboard link with your patient</p>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-            {!roadmap && DURATION_OPTIONS.map(({ label, months }) => (
+            {DURATION_OPTIONS.map(({ label, months }) => (
               <button key={label} onClick={() => setDuration(months)}
                 style={{ padding: '7px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', border: '1px solid', borderColor: duration === months ? '#538A22' : '#d1d5db', background: duration === months ? '#F2F9EC' : '#fff', color: duration === months ? '#538A22' : '#6b7280' }}>
                 {label}
               </button>
             ))}
             {roadmap ? (
-              <button onClick={() => setRoadmap(null)}
-                style={{ padding: '9px 14px', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', fontSize: 13, cursor: 'pointer', color: '#6b7280' }}>
-                ↺ Regenerate
+              <button onClick={refreshPlan} disabled={loading}
+                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 14px', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', fontSize: 13, cursor: loading ? 'not-allowed' : 'pointer', color: '#6b7280', opacity: loading ? 0.7 : 1 }}>
+                {loading ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : '↺'} {loading ? 'Refreshing...' : 'Refresh plan'}
               </button>
             ) : (
               <button onClick={generateRoadmap} disabled={loading}

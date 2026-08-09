@@ -6,6 +6,7 @@ import type { BankRecipe } from './matchRecipes'
 // always resolve the same content the same way (WYSIWYG) — guide_overrides
 // wins over the derived defaults when a coach has explicitly edited a field.
 export type RoadmapRow = {
+  created_at: string
   overview: string | null
   lifestyle_guidelines: string | null
   nutritionist_guidelines: string | null
@@ -51,6 +52,7 @@ export function buildGuideData(
     weeklyManualRecipes: overrides.weekly_manual_recipes ?? {},
     theme: overrides.theme || 'classic',
     template: overrides.template || 'classic',
+    createdAt: roadmap.created_at,
     confirmedSupplements,
     careServices: overrides.care_services ?? [],
     nextAppointment: overrides.next_appointment ?? { date: '', time: '', mode: '' },

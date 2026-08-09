@@ -15,16 +15,16 @@
 // real stages as the patient's actual tracked adherence (goalsDone /
 // totalActionsInPlan, the same number "Track your progress" already shows)
 // increases — a meaningful visual grounded in real data instead.
-import { useEffect, useMemo, useState, type CSSProperties } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import {
   HeartPulse, Utensils, Pill, Phone, CalendarCheck, HelpCircle, ChefHat, MapPin, ChevronDown, ChevronRight, X, Download,
-  CheckCircle2, Circle, Sparkles, Star, ShoppingCart, Video, MessageCircle, Activity, Stethoscope, Users, Flame, Target, TrendingUp,
+  CheckCircle2, Circle, Sparkles, Star, ShoppingCart, Video, MessageCircle, Activity, Stethoscope, Users, Target, TrendingUp,
   type LucideIcon,
 } from 'lucide-react'
 import type { GuideData, DayMealSlot } from '@/lib/pdf/ClientGuideDocument'
 import { parseNutritionistGuidelines } from '@/lib/pdf/parseNutritionistGuidelines'
 import { selectRecipesForPatient } from '@/lib/pdf/matchRecipes'
-import { reshapeRoadmapIntoMonths } from '@/lib/pdf/reshapeRoadmap'
+import { reshapeRoadmapIntoMonths, type WeeklyPlan } from '@/lib/pdf/reshapeRoadmap'
 import { getSlotRecipes } from '@/lib/pdf/weekRecipes'
 import { renderMarkdownBold } from '@/lib/renderMarkdownBold'
 import { splitRecipeLines } from '@/lib/recipeText'
@@ -56,6 +56,20 @@ function asPhrase(sentence: string): string {
 
 function todayISO(): string {
   return new Date().toISOString().slice(0, 10)
+}
+
+// Roadmaps don't store an explicit start date, so a week's "Sunday" is
+// anchored to the real calendar Sunday of the week the roadmap was created
+// in — Week 2's Monday is then just +7 days +1 from that same anchor. This
+// is what makes each DAY_LABELS tab (and its checkbox) a genuine, distinct
+// calendar date instead of every day silently sharing today's checkin.
+function weekSundayISO(createdAtISO: string): string {
+  const dateOnly = createdAtISO.slice(0, 10)
+  const d = new Date(`${dateOnly}T00:00:00Z`)
+  return shiftDateISO(dateOnly, -d.getUTCDay())
+}
+function dateForWeekDay(createdAtISO: string, weekNumber: number, dayIndex: number): string {
+  return shiftDateISO(weekSundayISO(createdAtISO), (weekNumber - 1) * 7 + dayIndex)
 }
 
 type Checkin = { week_number: number; action_index: number; checkin_date: string }
@@ -140,51 +154,150 @@ function KVGrid({ items, dark }: { items: string[]; dark?: boolean }) {
   )
 }
 
-// A tree that grows through 5 real stages as tracked adherence (pct,
-// 0-100) increases — replaces the reference design's fabricated schedule
-// wheel with something grounded in data this app actually has. Renders all
-// 5 stages up front (only the current one visible via CSS) rather than just
-// the one matching today's pct, so the downloaded static file can switch
-// stages live as the patient checks off goals offline — a stage the SVG
-// was never rendered for in the first place can't be revealed by any
-// amount of vanilla JS after the fact.
+// Text-only staging for the caption under the mascot ("First sprout",
+// "In full bloom" etc.) — kept separate from the visual, which now grows
+// continuously with real adherence (pct, 0-100) rather than snapping
+// between discrete stages.
 function stageForPct(pct: number): number {
   return pct >= 85 ? 4 : pct >= 60 ? 3 : pct >= 35 ? 2 : pct >= 10 ? 1 : 0
 }
-function TreeStage({ stage, visible }: { stage: number; visible: boolean }) {
-  const trunkH = 20 + stage * 15
-  const canopyR = 8 + stage * 13
-  const leafOn = stage >= 1
+const GROWTH_LABELS = ['Just planted', 'First sprout', 'Taking root', 'Growing strong', 'In full bloom']
+
+// A companion mascot (bobs continuously, cheers when a goal is freshly
+// checked) beside a plant that grows continuously with real tracked
+// adherence (pct, 0-100 — the same number "Track your progress" shows) —
+// replaces the reference design's fabricated schedule wheel with something
+// grounded in real data and alive to interact with. Stem/leaves/flower
+// reveal via stroke-dashoffset and opacity/transform transitions driven
+// directly by pct, so the SAME markup works unanimated on first paint,
+// live-animated in the browser, and re-driven by plain JS after every
+// offline check-in in the downloaded file — no discrete stages to
+// pre-render, just one continuous value the transitions follow.
+const STEM_LEN = 70
+function GrowthMascot({ pct, cheering }: { pct: number; cheering: boolean }) {
+  const clamped = Math.max(0, Math.min(100, pct))
+  const stemOffset = STEM_LEN - (STEM_LEN * clamped) / 100
+  const leaf1On = clamped >= 20
+  const leaf2On = clamped >= 50
+  const flowerOn = clamped >= 85
+  const mouthD = clamped >= 85 ? 'M45 65 Q56 76 67 65' : clamped > 0 ? 'M46 67 Q56 73 66 67' : 'M46 66 Q56 72 66 66'
   return (
-    <svg data-tree-stage={stage} width="220" height="240" viewBox="0 0 220 240" style={{ display: visible ? 'block' : 'none', margin: '0 auto' }}>
-      <ellipse cx="110" cy="220" rx="70" ry="8" fill={PALETTE.ink} opacity="0.08" />
-      <rect x="105" y={220 - trunkH} width="10" height={trunkH} rx="4" fill={PALETTE.dusk1} />
-      {leafOn && (
-        <>
-          <circle cx="110" cy={220 - trunkH - canopyR * 0.6} r={canopyR} fill={PALETTE.gold2} opacity="0.9" />
-          {stage >= 2 && <circle cx={110 - canopyR * 0.55} cy={220 - trunkH - canopyR * 0.3} r={canopyR * 0.7} fill={PALETTE.goldAccent} opacity="0.85" />}
-          {stage >= 2 && <circle cx={110 + canopyR * 0.55} cy={220 - trunkH - canopyR * 0.3} r={canopyR * 0.7} fill={PALETTE.goldAccent} opacity="0.85" />}
-          {stage >= 3 && <circle cx="110" cy={220 - trunkH - canopyR * 1.15} r={canopyR * 0.65} fill={PALETTE.gold1} opacity="0.95" />}
-          {stage >= 4 && [...Array(6)].map((_, i) => {
-            const angle = (i / 6) * Math.PI * 2
-            return <circle key={i} cx={110 + Math.cos(angle) * canopyR * 1.3} cy={220 - trunkH - canopyR * 0.6 + Math.sin(angle) * canopyR * 0.5} r={5} fill={PALETTE.berry} />
-          })}
-        </>
-      )}
-      {stage === 0 && <circle cx="110" cy="216" r="5" fill={PALETTE.dusk2} />}
-    </svg>
-  )
-}
-function GrowthTree({ pct }: { pct: number }) {
-  const stage = stageForPct(pct)
-  return (
-    <div data-growth-tree style={{ position: 'relative' }}>
-      {[0, 1, 2, 3, 4].map((s) => <TreeStage key={s} stage={s} visible={s === stage} />)}
+    <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'center', gap: 14, flexWrap: 'wrap' }}>
+      <svg data-mascot-idle width="100" height="90" viewBox="0 0 112 100"
+        style={{ animation: cheering ? 'clpMascotCheer 0.7s ease' : 'clpMascotBob 3.2s ease-in-out infinite', transformOrigin: '56px 90px' }}>
+        <path d="M20 62 Q18 40 40 32 Q56 26 74 34 Q94 42 92 62" fill="none" stroke={PALETTE.berry} strokeWidth="2.2" strokeLinecap="round" />
+        <path d="M18 62 Q56 78 94 62 Q90 84 56 86 Q22 84 18 62 Z" fill={PALETTE.gold2} stroke={PALETTE.berry} strokeWidth="2.2" />
+        <circle cx="44" cy="58" r="3" fill={PALETTE.ink} />
+        <circle cx="68" cy="58" r="3" fill={PALETTE.ink} />
+        <path data-mascot-mouth d={mouthD} fill="none" stroke={PALETTE.ink} strokeWidth="2" strokeLinecap="round" style={{ transition: 'd 0.3s ease' }} />
+        <path d="M40 30 Q38 18 30 12" fill="none" stroke={PALETTE.dusk1} strokeWidth="2" strokeLinecap="round" />
+        <path d="M30 12 Q26 8 30 4 Q34 8 30 12" fill={PALETTE.dusk1} />
+        <path d="M76 30 Q80 16 90 10" fill="none" stroke={PALETTE.dusk1} strokeWidth="2" strokeLinecap="round" />
+        <path d="M90 10 Q86 6 90 2 Q94 6 90 10" fill={PALETTE.dusk1} />
+      </svg>
+      <svg width="90" height="80" viewBox="0 0 112 96">
+        <line x1="20" y1="90" x2="92" y2="90" stroke={PALETTE.line} strokeWidth="3" strokeLinecap="round" />
+        <path data-plant-stem d="M56 90 L56 20" stroke={PALETTE.dusk1} strokeWidth="3" fill="none" strokeLinecap="round"
+          strokeDasharray={STEM_LEN} style={{ strokeDashoffset: stemOffset, transition: 'stroke-dashoffset 0.6s cubic-bezier(.2,.8,.3,1)' }} />
+        <path data-plant-leaf1 d="M56 60 Q40 56 38 42 Q54 44 56 60 Z" fill={PALETTE.gold1}
+          style={{ opacity: leaf1On ? 1 : 0, transform: leaf1On ? 'scale(1)' : 'scale(0.4)', transformOrigin: '47px 51px', transition: 'opacity 0.4s ease, transform 0.4s ease' }} />
+        <path data-plant-leaf2 d="M56 46 Q72 42 74 28 Q58 30 56 46 Z" fill={PALETTE.gold1}
+          style={{ opacity: leaf2On ? 1 : 0, transform: leaf2On ? 'scale(1)' : 'scale(0.4)', transformOrigin: '65px 37px', transition: 'opacity 0.4s ease, transform 0.4s ease' }} />
+        <g data-plant-flower style={{ opacity: flowerOn ? 1 : 0, transform: flowerOn ? 'scale(1)' : 'scale(0.3)', transformOrigin: '56px 22px', transition: 'opacity 0.4s ease 0.1s, transform 0.45s cubic-bezier(.2,.9,.3,1.4) 0.1s' }}>
+          <path d="M56 12 Q64 6 66 -2 Q56 -4 52 6 Q50 -2 40 0 Q42 8 52 12 Q42 14 40 22 Q50 22 56 14 Q58 22 68 22 Q68 12 56 12 Z" transform="translate(0,10)" fill={PALETTE.berry} />
+          <circle cx="56" cy="22" r="4" fill={PALETTE.goldAccent} />
+        </g>
+      </svg>
     </div>
   )
 }
 
-const GROWTH_LABELS = ['Just planted', 'First sprout', 'Taking root', 'Growing strong', 'In full bloom']
+// Same "just did something good" pop as the mascot cheer, reused for the
+// streak flame in Track Your Progress — lights up (gray to gold) once the
+// streak is real, no fabricated fire before there's an actual streak.
+function StreakFlame({ lit, pop }: { lit: boolean; pop: boolean }) {
+  return (
+    <svg data-streak-flame width="14" height="14" viewBox="0 0 24 24" style={{ animation: pop ? 'clpFlamePop 0.5s ease' : undefined }}>
+      <path data-on-color={PALETTE.goldAccent} data-off-color="rgba(43,42,34,0.25)" d="M12 3q1 4 4 6.5t3 5.5a1 1 0 0 1-14 0 5 5 0 0 1 1-3 1 1 0 0 0 5 0c0-2-1.5-3-1.5-5q0-2 2.5-4"
+        fill={lit ? PALETTE.goldAccent : 'rgba(43,42,34,0.25)'} style={{ transition: 'fill 0.3s ease' }} />
+    </svg>
+  )
+}
+
+// Smooth curve through arbitrary points (Catmull-Rom -> cubic Bezier) — lets
+// the roadmap trail below wiggle nicely for any month count, not just 3.
+function buildTrailPath(points: { x: number; y: number }[]): string {
+  if (points.length < 2) return ''
+  let d = `M ${points[0].x} ${points[0].y}`
+  for (let i = 0; i < points.length - 1; i++) {
+    const p0 = points[i === 0 ? i : i - 1]
+    const p1 = points[i]
+    const p2 = points[i + 1]
+    const p3 = points[i + 2 < points.length ? i + 2 : i + 1]
+    const cp1x = p1.x + (p2.x - p0.x) / 6
+    const cp1y = p1.y + (p2.y - p0.y) / 6
+    const cp2x = p2.x - (p3.x - p1.x) / 6
+    const cp2y = p2.y - (p3.y - p1.y) / 6
+    d += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p2.x} ${p2.y}`
+  }
+  return d
+}
+
+// A winding trail above "Your roadmap"'s month pills — one flag per month,
+// filled in as far as the patient's real average completion across months
+// (the same pct "Track your progress" already computes, never a fabricated
+// number). Clicking a flag opens that month, same as clicking its pill —
+// it shares the exact `data-month-trigger` hook the pill row already uses,
+// so the shared offline-export script wires it up for free.
+function RoadmapTrail({ monthStats, onSelect }: { monthStats: { monthNumber: number; monthLabel: string; pct: number }[]; onSelect: (n: number) => void }) {
+  const n = monthStats.length
+  const pathRef = useRef<SVGPathElement | null>(null)
+  const [pathLen, setPathLen] = useState(400)
+
+  const points = useMemo(
+    () => monthStats.map((_, i) => ({
+      x: n > 1 ? 30 + (i * (290 - 30)) / (n - 1) : 160,
+      y: n > 1 ? 70 + 30 * Math.cos((Math.PI * i) / (n - 1)) : 70,
+    })),
+    [monthStats, n]
+  )
+  const d = useMemo(() => buildTrailPath(points), [points])
+
+  useEffect(() => {
+    if (pathRef.current) setPathLen(pathRef.current.getTotalLength())
+  }, [d])
+
+  if (n < 2) return null
+
+  const avgPct = monthStats.reduce((s, m) => s + m.pct, 0) / (n * 100)
+  const firstIncompleteIdx = monthStats.findIndex((m) => m.pct < 100)
+  const activeIdx = firstIncompleteIdx === -1 ? n - 1 : firstIncompleteIdx
+
+  return (
+    <svg data-trail-svg width="100%" height="130" viewBox="0 0 320 140" style={{ marginTop: 8, display: 'block' }}>
+      <path data-trail-bg d={d} stroke="rgba(243,236,218,0.25)" strokeWidth={4} fill="none" strokeLinecap="round" />
+      <path ref={pathRef} data-trail-fill d={d} stroke={PALETTE.gold1} strokeWidth={4} fill="none" strokeLinecap="round"
+        strokeDasharray={pathLen}
+        style={{ strokeDashoffset: pathLen - pathLen * avgPct, transition: 'stroke-dashoffset 0.8s cubic-bezier(.2,.8,.3,1)' }} />
+      {points.map((p, i) => {
+        const m = monthStats[i]
+        const done = m.pct >= 100
+        const isActive = i === activeIdx
+        const fill = done ? PALETTE.gold1 : isActive ? PALETTE.berry : 'rgba(243,236,218,0.10)'
+        const textColor = done ? PALETTE.ink : isActive ? PALETTE.cream : 'rgba(243,236,218,0.6)'
+        return (
+          <g key={m.monthNumber} data-month-trigger={m.monthNumber} data-trail-flag={m.monthNumber}
+            data-done-color={PALETTE.gold1} data-active-color={PALETTE.berry} data-upcoming-color="rgba(243,236,218,0.10)"
+            onClick={() => onSelect(m.monthNumber)} transform={`translate(${p.x},${p.y})`}
+            style={{ cursor: 'pointer' }}>
+            <circle r={16} fill={fill} stroke="rgba(243,236,218,0.3)" strokeWidth={1.5} style={{ transition: 'fill 0.3s ease' }} />
+            <text x={0} y={4} textAnchor="middle" fontSize={11} fontWeight={700} fill={textColor} style={{ pointerEvents: 'none' }}>{i + 1}</text>
+          </g>
+        )
+      })}
+    </svg>
+  )
+}
 
 export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { roadmapId: string; data: GuideData; initialCheckins: Checkin[] }) {
   const firstName = data.patient.full_name?.split(' ')[0] || 'there'
@@ -197,14 +310,11 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
   const lifestyleBullets = useMemo(() => parseBullets(data.roadmap.lifestyle_guidelines), [data.roadmap.lifestyle_guidelines])
 
   const months = useMemo(() => reshapeRoadmapIntoMonths(data.roadmap.weekly_schedule).filter((m) => m.planned), [data.roadmap.weekly_schedule])
-  const totalActionsInPlan = useMemo(() => months.reduce((n, m) => n + m.weeks.reduce((nn, w) => nn + (w.actions?.length ?? 0), 0), 0), [months])
 
   // Same real, tappable goal check-off as Classic — striking a goal here
   // persists to the same checkins table, so "Track your progress" and the
   // tree above update immediately, live, not just on the next page load.
   const [checkins, setCheckins] = useState<Checkin[]>(initialCheckins)
-  const goalsDone = useMemo(() => new Set(checkins.map((c) => `${c.week_number}:${c.action_index}`)).size, [checkins])
-  const adherencePct = totalActionsInPlan > 0 ? Math.round((goalsDone / totalActionsInPlan) * 100) : 0
 
   // Matched once at the same limit (5) Classic uses, so both templates rank
   // recipes identically — this is the real per-week curated data (a coach's
@@ -233,33 +343,73 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
     let cursor = dateSet.has(today) ? today : shiftDateISO(today, -1)
     while (dateSet.has(cursor)) { streak++; cursor = shiftDateISO(cursor, -1) }
     const doneKeys = new Set(checkins.map((c) => `${c.week_number}:${c.action_index}`))
+    // A week with a real day-by-day breakdown (WeeklyPlan.days) tracks
+    // completion per real calendar day instead of "done on any day counts"
+    // — each of the 7 days is a genuinely different task now, so a checkin
+    // only counts if it actually falls on that day's own real date. A
+    // legacy week (no `days`) keeps the old date-agnostic counting exactly
+    // as before, so older roadmaps' numbers never change underneath them.
+    const weekStats = (w: WeeklyPlan) => {
+      if (w.days && w.days.length > 0) {
+        const validDates = new Set(DAY_LABELS.map((_, i) => dateForWeekDay(data.createdAt, w.week_number, i)))
+        const perDay = w.days[0]?.length ?? w.actions?.length ?? 0
+        const total = w.days.reduce((n, d) => n + d.length, 0)
+        const done = checkins.filter((c) => c.week_number === w.week_number && c.action_index < perDay && validDates.has(c.checkin_date)).length
+        return { total, done }
+      }
+      const total = w.actions?.length ?? 0
+      const done = (w.actions ?? []).filter((_, i) => doneKeys.has(`${w.week_number}:${i}`)).length
+      return { total, done }
+    }
     const monthStats = months.map((m) => {
-      const total = m.weeks.reduce((n, w) => n + (w.actions?.length ?? 0), 0)
-      const done = m.weeks.reduce((n, w) => n + (w.actions ?? []).filter((_, i) => doneKeys.has(`${w.week_number}:${i}`)).length, 0)
+      const stats = m.weeks.map(weekStats)
+      const total = stats.reduce((n, s) => n + s.total, 0)
+      const done = stats.reduce((n, s) => n + s.done, 0)
       return { monthNumber: m.monthNumber, monthLabel: m.monthLabel, doneActions: done, totalActions: total, pct: total > 0 ? Math.round((done / total) * 100) : 0 }
     })
     const bestMonth = monthStats.reduce<typeof monthStats[number] | null>((best, m) => (m.doneActions > 0 && m.pct > (best?.pct ?? -1) ? m : best), null)
     return { streak, totalDaysLogged: dateSet.size, monthStats, bestMonth }
-  }, [checkins, months, today])
+  }, [checkins, months, today, data.createdAt])
+
+  // Derived from the exact same per-month totals "Track your progress"
+  // shows (never recomputed separately) — the mascot/plant's growth stage
+  // and the "goals accomplished" stat can never silently disagree with it.
+  const totalActionsInPlan = progress.monthStats.reduce((n, m) => n + m.totalActions, 0)
+  const goalsDone = progress.monthStats.reduce((n, m) => n + m.doneActions, 0)
+  const adherencePct = totalActionsInPlan > 0 ? Math.round((goalsDone / totalActionsInPlan) * 100) : 0
 
   const checkedSet = useMemo(() => new Set(checkins.map((c) => `${c.week_number}:${c.action_index}:${c.checkin_date}`)), [checkins])
+
+  // Brief mascot cheer + flame pop when a goal is freshly checked (not on
+  // uncheck) — purely a feel-good pulse, never fabricates progress; the
+  // underlying pct/streak numbers driving the mascot/plant/flame are the
+  // exact same real ones "Track your progress" shows.
+  const [cheering, setCheering] = useState(false)
+  const cheerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Same optimistic-update-with-revert pattern as Classic's toggle() —
   // persists to the same /checkins endpoint, so ticking a goal here shows
   // up identically if the coach or patient later opens the Classic template.
-  async function toggleGoal(weekNumber: number, actionIndex: number) {
-    const key = `${weekNumber}:${actionIndex}:${today}`
+  // `date` is the specific day-tab's own real calendar date (see
+  // dateForWeekDay above), not always today — each day tracks independently.
+  async function toggleGoal(weekNumber: number, actionIndex: number, date: string) {
+    const key = `${weekNumber}:${actionIndex}:${date}`
     const wasChecked = checkedSet.has(key)
+    if (!wasChecked) {
+      setCheering(true)
+      if (cheerTimeoutRef.current) clearTimeout(cheerTimeoutRef.current)
+      cheerTimeoutRef.current = setTimeout(() => setCheering(false), 700)
+    }
     const revert = () => setCheckins((prev) => wasChecked
-      ? [...prev, { week_number: weekNumber, action_index: actionIndex, checkin_date: today }]
-      : prev.filter((c) => !(c.week_number === weekNumber && c.action_index === actionIndex && c.checkin_date === today)))
+      ? [...prev, { week_number: weekNumber, action_index: actionIndex, checkin_date: date }]
+      : prev.filter((c) => !(c.week_number === weekNumber && c.action_index === actionIndex && c.checkin_date === date)))
     setCheckins((prev) => wasChecked
-      ? prev.filter((c) => !(c.week_number === weekNumber && c.action_index === actionIndex && c.checkin_date === today))
-      : [...prev, { week_number: weekNumber, action_index: actionIndex, checkin_date: today }])
+      ? prev.filter((c) => !(c.week_number === weekNumber && c.action_index === actionIndex && c.checkin_date === date))
+      : [...prev, { week_number: weekNumber, action_index: actionIndex, checkin_date: date }])
     try {
       const r = await fetch(`/api/roadmaps/${roadmapId}/checkins`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ week_number: weekNumber, action_index: actionIndex, date: today }),
+        body: JSON.stringify({ week_number: weekNumber, action_index: actionIndex, date }),
       })
       if (!r.ok) revert()
     } catch {
@@ -327,10 +477,19 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
   const [openService, setOpenService] = useState<number | null>(null)
 
   const [openFaq, setOpenFaq] = useState<number | null>(null)
+  const [founderOpen, setFounderOpen] = useState(false)
+  const [coachOpen, setCoachOpen] = useState(false)
 
   // Same "no real match beats a fabricated one" tag-matched photo as Classic
   // — a plain icon tile shows instead if nothing in the picture bank fits.
-  const superfoodImage = useMemo(() => matchGuideImageDistinct('superfood nutrition weekly pick seasonal', data.imageBank, new Set()), [data.imageBank])
+  // Both pulls share one `used` set so the same picture-bank image can't get
+  // matched into both "Superfood" and "Your why" on the same page.
+  const { superfoodImage, whyImage } = useMemo(() => {
+    const used = new Set<string>()
+    const superfood = matchGuideImageDistinct('superfood nutrition weekly pick seasonal', data.imageBank, used)
+    const why = matchGuideImageDistinct('motivation why reflection goal mindset determination doodle illustration', data.imageBank, used)
+    return { superfoodImage: superfood, whyImage: why }
+  }, [data.imageBank])
 
   // Downloads exactly what's rendered — every collapsible block in this
   // template is always mounted (just `display:none` when closed, never
@@ -359,6 +518,10 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
     clone.querySelectorAll('[data-toc-trigger]').forEach((el) => el.setAttribute('onclick', 'clpToggleToc()'))
     clone.querySelectorAll('[data-toc-link]').forEach((el) => el.setAttribute('onclick', 'clpCloseToc()'))
     clone.querySelectorAll('[data-toc-panel]').forEach((el) => ((el as HTMLElement).style.display = 'none'))
+    clone.querySelectorAll('[data-founder-trigger]').forEach((el) => el.setAttribute('onclick', 'clpToggleFounder()'))
+    clone.querySelectorAll('[data-founder-body]').forEach((el) => ((el as HTMLElement).style.display = 'none'))
+    clone.querySelectorAll('[data-coach-trigger]').forEach((el) => el.setAttribute('onclick', 'clpToggleCoach()'))
+    clone.querySelectorAll('[data-coach-body]').forEach((el) => ((el as HTMLElement).style.display = 'none'))
     clone.querySelectorAll('[data-goal-toggle]').forEach((el) => {
       const key = (el.getAttribute('data-goal-toggle') || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'")
       el.setAttribute('onclick', `toggleGoalExport('${key}', this)`)
@@ -369,7 +532,7 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
     })
     clone.querySelectorAll('[style*="position: sticky"]').forEach((el) => ((el as HTMLElement).style.position = 'static'))
 
-    const monthsData = months.map((m) => ({ monthNumber: m.monthNumber, monthLabel: m.monthLabel, weeks: m.weeks.map((w) => ({ week_number: w.week_number, totalActions: w.actions?.length ?? 0 })) }))
+    const monthsData = months.map((m) => ({ monthNumber: m.monthNumber, monthLabel: m.monthLabel, weeks: m.weeks.map((w) => ({ week_number: w.week_number, totalActions: w.days?.length ? w.days.reduce((n, d) => n + d.length, 0) : (w.actions?.length ?? 0) })) }))
     const script = buildInlineExportScript({
       roadmapId, monthsData,
       colors: { ink: PALETTE.ink, inkSoft: PALETTE.ink, muted: 'rgba(43,42,34,0.55)', accent: PALETTE.berry, accentSoft: 'rgba(122,51,70,0.08)', border: PALETTE.line, onAccent: '#fff' },
@@ -400,11 +563,29 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
     URL.revokeObjectURL(url)
   }
 
+  // No visible download button on the patient-facing page — a patient just
+  // tracks live here. A coach can still pull an offline copy for themselves
+  // from the patient's page in the app, which links here with ?download=1
+  // to trigger this same download automatically, no button needed.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('download') === '1') {
+      downloadDashboard()
+      window.history.replaceState(null, '', window.location.pathname)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   return (
     <div id="almanac-export-root" style={{ background: PALETTE.paper1, minHeight: '100vh', fontFamily: "'Work Sans', sans-serif", color: PALETTE.ink, WebkitFontSmoothing: 'antialiased' }}>
       <link rel="preconnect" href="https://fonts.googleapis.com" />
       <link href={FONT_LINK} rel="stylesheet" />
       <a href={`/roadmaps/${roadmapId}/edit`} data-no-export style={{ display: 'none' }} />
+      <style>{`
+        @keyframes clpMascotBob { 0%,100% { transform: translateY(0) rotate(0deg); } 50% { transform: translateY(-4px) rotate(-1.5deg); } }
+        @keyframes clpMascotCheer { 0% { transform: translateY(0) scale(1) rotate(0deg); } 30% { transform: translateY(-14px) scale(1.08) rotate(-4deg); } 55% { transform: translateY(-6px) scale(1.04) rotate(3deg); } 100% { transform: translateY(0) scale(1) rotate(0deg); } }
+        @keyframes clpFlamePop { 0% { transform: scale(1); } 40% { transform: scale(1.22) rotate(-4deg); } 100% { transform: scale(1) rotate(0deg); } }
+        @media (prefers-reduced-motion: reduce) { [data-mascot-idle], [data-streak-flame] { animation: none !important; } }
+      `}</style>
 
       {/* Jump-to-section — a single dropdown rather than a row of links, so
           it never overflows or shows a scrollbar regardless of section
@@ -437,68 +618,80 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
           <div style={{ marginTop: '1.1rem', fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.85rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: PALETTE.berry }}>{data.goalLabel}</div>
 
           <div style={{ margin: '2.5rem 0 0.5rem' }}>
-            <GrowthTree pct={adherencePct} />
+            <GrowthMascot pct={adherencePct} cheering={cheering} />
           </div>
           <div data-growth-caption style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.7rem', letterSpacing: '0.08em', textTransform: 'uppercase', opacity: 0.6 }}>
             {totalActionsInPlan > 0 ? <>{GROWTH_LABELS[stageForPct(adherencePct)]} · <span data-goals-done>{goalsDone}</span>/{totalActionsInPlan} goals tracked</> : 'Your progress tree, check off goals in your plan to grow it'}
           </div>
-          <button onClick={downloadDashboard} data-no-export
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 7, marginTop: 24, padding: '10px 20px', borderRadius: 24, border: 'none', background: PALETTE.berry, color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
-            <Download size={15} /> Download your plan
-          </button>
         </div>
       </section>
 
-      {/* Founder's note — same letter as Classic, personalized with name/goal */}
+      {/* Founder's note — same left-aligned avatar-row layout as the coach
+          section right below it, so the two sit on the exact same left
+          edge and avatar size instead of one being centered and one not. */}
       <section id="founder" style={{ background: PALETTE.paper2, padding: '4rem 1.5rem', ...hiddenStyle('founder') }}>
         <div style={{ maxWidth: 720, margin: '0 auto' }}>
           <Eyebrow>A note from the founder</Eyebrow>
           <SecTitle icon={<HeartPulse size={26} />}>Founder&apos;s Note</SecTitle>
-          <div style={{ marginTop: 20, fontSize: '0.95rem', lineHeight: 1.75 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap', marginTop: 20 }}>
+            <button data-founder-trigger onClick={() => setFounderOpen((v) => !v)}
+              style={{ width: 64, height: 64, borderRadius: 32, flexShrink: 0, background: PALETTE.berry, color: '#fff', border: 'none', cursor: 'pointer', fontFamily: "'Fraunces', serif", fontSize: 18, fontWeight: 500, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              RS
+            </button>
+            <div>
+              <div style={{ fontFamily: "'Fraunces', serif", fontSize: '1.3rem', fontWeight: 500, marginTop: -8 }}>Roshni Sanghvi</div>
+              <div style={{ fontSize: '0.85rem', opacity: 0.65, marginTop: 2 }}>Founder, Clinic Living Plus</div>
+              <div style={{ fontSize: '0.72rem', opacity: 0.55, marginTop: 8 }}>Tap the photo to read the note</div>
+            </div>
+          </div>
+          <div data-founder-body style={{ display: founderOpen ? 'block' : 'none', marginTop: 20, fontSize: '0.95rem', lineHeight: 1.75 }}>
             <p>{firstName},</p>
-            <p>There are eleven people in this building who already know something about you.</p>
-            <p>Not just your name, though it&apos;s already underlined twice in your file. Someone has read the notes from your consult call. Someone already knows which foods actually excite you, the dish you&apos;d genuinely look forward to, not just tolerate. And if you&apos;ve already walked through our doors before today, one of us probably remembers exactly where you sat.</p>
-            <p>Your wellness coach said a small, quiet word to herself before she uploaded this document, the kind of thing she does for every plan, whether or not anyone ever finds out. Your doctor has already opened a new tab on her computer, right next to your history. It&apos;s empty for now. She&apos;s waiting to fill it with everything you&apos;re about to do.</p>
-            <p>Here&apos;s the part I want you to actually believe: we are genuinely excited for you. Not in the polite, clinical, thank-you-for-choosing-us way. In the way you&apos;d be excited watching someone you love finally get somewhere they&apos;ve been trying to reach for years. Every small win on the way to {asPhrase(data.goalLabel.toLowerCase())}, the first night you sleep straight through, the first craving that doesn&apos;t win, the first lab report that makes your doctor sit up a little straighter, somebody here is going to see it and quietly punch the air.</p>
-            <p>None of that is a metaphor. It&apos;s Tuesday-morning-huddle real.</p>
-            <p>A year before I started Clinic Living Plus, I was the patient across the table, asking a question and getting an answer that didn&apos;t hold up when I looked closer. That gap, between what people are told and what&apos;s actually true about their own body, is the entire reason this place exists.</p>
-            <p>So here&apos;s what I can promise: this document was not templated. A coach spent ninety real minutes listening to your actual life before a single recipe in here was chosen. What happens next is mostly on you. What happens around you, the noticing, the small adjustments, the quiet cheering at every step, has already begun.</p>
-            <p>Come find us when something in here surprises you. We&apos;d love to hear it.</p>
-            <p style={{ marginTop: 20, marginBottom: 0, fontFamily: "'Fraunces', serif", fontWeight: 500, fontSize: '1.05rem' }}>Roshni Sanghvi</p>
-            <p style={{ marginTop: 2, fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.72rem', letterSpacing: '0.08em', opacity: 0.6 }}>FOUNDER, CLINIC LIVING PLUS</p>
+            <p>This plan wasn&apos;t templated, a coach spent real time on your actual life before a single recommendation in here was chosen.</p>
+            <p>We&apos;ll be watching for every small win on the way to {asPhrase(data.goalLabel.toLowerCase())}. That&apos;s not a formality here, it&apos;s the whole point of this place.</p>
+            <p>Come find us when something in here surprises you, or doesn&apos;t sit right. We&apos;d love to hear it.</p>
           </div>
         </div>
       </section>
 
-      {/* Coach */}
+      {/* Coach — photo, name, and designation stay visible; a personal
+          quote (when the coach has entered one) sits behind a tap on the
+          photo instead of always showing, same pattern as the founder's
+          note above. */}
       {data.coach && (
         <section id="coach" style={{ background: PALETTE.paper2, borderTop: `1px solid ${PALETTE.line}`, borderBottom: `1px solid ${PALETTE.line}`, padding: '3rem 1.5rem', ...hiddenStyle('coach') }}>
-          <div style={{ maxWidth: 920, margin: '0 auto', display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
-            <div style={{ width: 64, height: 64, borderRadius: 32, flexShrink: 0, background: data.coach.photo_url ? `url(${data.coach.photo_url}) center/cover` : PALETTE.gold1, border: `1px solid ${PALETTE.line}` }} />
+          <div style={{ maxWidth: 720, margin: '0 auto', display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
+            <button data-coach-trigger onClick={() => data.coachQuote && setCoachOpen((v) => !v)}
+              style={{ width: 64, height: 64, borderRadius: 32, flexShrink: 0, background: data.coach.photo_url ? `url(${data.coach.photo_url}) center/cover` : PALETTE.gold1, border: `1px solid ${PALETTE.line}`, padding: 0, cursor: data.coachQuote ? 'pointer' : 'default' }} />
             <div>
               <Eyebrow>Your coach</Eyebrow>
               <div style={{ fontFamily: "'Fraunces', serif", fontSize: '1.3rem', fontWeight: 500, marginTop: -8 }}>{data.coach.full_name}</div>
               <div style={{ fontSize: '0.85rem', opacity: 0.65, marginTop: 2 }}>{data.coach.designation}</div>
-              {data.coachQuote && <div style={{ marginTop: 10, fontStyle: 'italic', color: PALETTE.berry, fontSize: '0.92rem', maxWidth: 560 }}>&ldquo;{renderMarkdownBold(data.coachQuote)}&rdquo;</div>}
+              {data.coachQuote && (
+                <>
+                  <div style={{ fontSize: '0.72rem', opacity: 0.55, marginTop: 8 }}>Tap the photo for a note from {coachFirst}</div>
+                  <div data-coach-body style={{ display: coachOpen ? 'block' : 'none', marginTop: 6, fontStyle: 'italic', color: PALETTE.berry, fontSize: '0.92rem', maxWidth: 560 }}>&ldquo;{renderMarkdownBold(data.coachQuote)}&rdquo;</div>
+                </>
+              )}
             </div>
           </div>
         </section>
       )}
 
-      {/* Care team */}
+      {/* Care team — open, no card border, same floating typographic
+          treatment as "Superfood of the week" rather than a boxed tile. */}
       {data.careTeam.length > 0 && (
         <section id="careteam" style={{ background: PALETTE.paper3, padding: '4rem 1.5rem', ...hiddenStyle('careteam') }}>
-          <div style={{ maxWidth: 920, margin: '0 auto' }}>
+          <div style={{ maxWidth: 720, margin: '0 auto' }}>
             <Eyebrow>Beyond your coach</Eyebrow>
             <SecTitle icon={<HeartPulse size={26} />}>Your care team</SecTitle>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16, marginTop: 20 }}>
+            <div style={{ marginTop: 24, display: 'flex', flexDirection: 'column', gap: 24 }}>
               {data.careTeam.map((m, i) => (
-                <div key={i} style={{ background: 'rgba(255,255,255,0.4)', border: `1px solid ${PALETTE.line}`, borderRadius: 12, padding: '16px 18px' }}>
-                  <div style={{ fontFamily: "'Fraunces', serif", fontSize: '1.05rem', fontWeight: 500 }}>{m.name}</div>
-                  {m.role && <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.7rem', letterSpacing: '0.06em', textTransform: 'uppercase', opacity: 0.6, marginTop: 2 }}>{m.role}</div>}
-                  {m.intro && <p style={{ fontSize: '0.9rem', lineHeight: 1.5, marginTop: 8 }}>{renderMarkdownBold(m.intro)}</p>}
+                <div key={i} style={i > 0 ? { paddingTop: 24, borderTop: `1px solid ${PALETTE.line}` } : undefined}>
+                  <div style={{ fontFamily: "'Fraunces', serif", fontSize: '1.1rem', fontWeight: 500 }}>{m.name}</div>
+                  {m.role && <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.7rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: PALETTE.berry, marginTop: 4 }}>{m.role}</div>}
+                  {m.intro && <p style={{ fontSize: '0.95rem', lineHeight: 1.6, marginTop: 10, marginBottom: 0 }}>{renderMarkdownBold(m.intro)}</p>}
                   {m.date && (
-                    <div style={{ fontSize: '0.82rem', color: PALETTE.berry, fontWeight: 600, marginTop: 8 }}>
+                    <div style={{ fontSize: '0.85rem', color: PALETTE.berry, fontWeight: 600, marginTop: 10 }}>
                       {new Date(m.date + 'T00:00:00').toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric' })}
                       {m.time && ` · ${new Date(`2000-01-01T${m.time}`).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}`}
                     </div>
@@ -514,26 +707,30 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
       <section id="howto" style={{ background: PALETTE.gold1, padding: '4rem 1.5rem', ...hiddenStyle('howto') }}>
         <div style={{ maxWidth: 720, margin: '0 auto' }}>
           <Eyebrow>Getting oriented</Eyebrow>
-          <SecTitle icon={<HelpCircle size={26} />}>How To Use This Guide</SecTitle>
-          <p style={{ marginTop: 16, marginBottom: 20, fontSize: '0.95rem', lineHeight: 1.6 }}>This page is built to be opened often, not read once and forgotten. Here&apos;s where everything lives:</p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <SecTitle icon={<HelpCircle size={26} />}>How To Use Your Plan</SecTitle>
+          <p style={{ marginTop: 16, marginBottom: 20, fontSize: '0.95rem', fontWeight: 600, color: PALETTE.berry }}>Follow → Track → Adjust</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
             {[
-              { title: 'Your roadmap', text: 'Tap a month, then a week, to see that week’s goals. Tap a meal slot to see the recipes picked for you.' },
-              { title: 'Check off as you go', text: 'Tap a goal each day you actually do it. It’s tracked under “Track your progress” below, so ' + coachFirst + ' can see real adherence before your next session, not a guess.' },
-              { title: 'Recipes update as you go', text: 'Matched to your notes and diet. If one looks off or missing, tell ' + coachFirst + ' rather than skipping it.' },
-              { title: 'Supplements, if any', text: 'A supplement table only shows up here once ' + coachFirst + ' has reviewed and confirmed it. If that section is empty, none is prescribed yet.' },
-              { title: 'When in doubt, ask', text: 'If anything here feels unclear or off, reach ' + coachFirst + ' before improvising, that’s exactly what they’re there for.' },
-            ].map(({ title, text }) => (
-              <div key={title}>
-                <div style={{ fontWeight: 600, fontSize: '0.92rem', marginBottom: 3 }}>{title}</div>
-                <div style={{ fontSize: '0.88rem', opacity: 0.75, lineHeight: 1.55 }}>{text}</div>
+              { icon: MapPin, title: 'This week', text: 'Check your goals and meals for the week.' },
+              { icon: CheckCircle2, title: 'Each day', text: 'Tick off what you complete.' },
+              { icon: HelpCircle, title: 'Need help?', text: 'Message ' + coachFirst + ' if something doesn’t work for you.' },
+            ].map(({ icon: Icon, title, text }) => (
+              <div key={title} style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
+                <div style={{ width: 38, height: 38, borderRadius: 10, background: 'rgba(122,51,70,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <Icon size={18} color={PALETTE.berry} />
+                </div>
+                <div style={{ paddingTop: 2 }}>
+                  <div style={{ fontWeight: 600, fontSize: '0.92rem', marginBottom: 3 }}>{title}</div>
+                  <div style={{ fontSize: '0.88rem', opacity: 0.75, lineHeight: 1.55 }}>{text}</div>
+                </div>
               </div>
             ))}
           </div>
           <div style={{ marginTop: 32, paddingTop: 24, borderTop: `1px solid ${PALETTE.line}` }}>
             <Eyebrow>Your why</Eyebrow>
+            {whyImage && <img src={whyImage.image_url} alt={whyImage.label} style={{ display: 'block', width: '100%', maxWidth: 340, height: 'auto', borderRadius: 12, margin: '12px auto 16px' }} />}
             {data.whyReflection ? (
-              <p style={{ fontSize: '0.95rem', lineHeight: 1.65 }}>{firstName}, from what you shared with us: {renderMarkdownBold(data.whyReflection)}</p>
+              <p style={{ fontSize: '0.95rem', lineHeight: 1.65 }}>{renderMarkdownBold(data.whyReflection)}</p>
             ) : (
               <p style={{ fontSize: '0.9rem', opacity: 0.6 }}>Not filled in yet.</p>
             )}
@@ -634,6 +831,8 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
             <Eyebrow dark>Month by month</Eyebrow>
             <SecTitle dark icon={<MapPin size={26} color={PALETTE.cream} />}>Your Roadmap</SecTitle>
 
+            <RoadmapTrail monthStats={progress.monthStats} onSelect={(n) => { const next = openMonth === n ? null : n; setOpenMonth(next); setOpenWeek(null); setOpenDay(null); setOpenSlot(null); setOpenRecipeId(null) }} />
+
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 24 }}>
               {months.map((m) => (
                 <button key={m.monthNumber} data-month-trigger={m.monthNumber} onClick={() => { const next = openMonth === m.monthNumber ? null : m.monthNumber; setOpenMonth(next); setOpenWeek(null); setOpenDay(null); setOpenSlot(null); setOpenRecipeId(null) }}
@@ -669,9 +868,10 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
                       <div style={{ marginBottom: 28 }}>
                         <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.7rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: PALETTE.gold1, opacity: 0.85 }}>Sunday to Saturday, this week&apos;s goals</span>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
-                          {DAY_LABELS.map((day) => {
+                          {DAY_LABELS.map((day, dayIndex) => {
                             const dayId = `${w.week_number}-${day}`
                             const isDayOpen = openDay === dayId
+                            const dayDate = dateForWeekDay(data.createdAt, w.week_number, dayIndex)
                             return (
                               <div key={day} style={{ border: '1px solid rgba(243,236,218,0.22)', borderRadius: 12, overflow: 'hidden' }}>
                                 <button data-day-trigger={dayId} onClick={() => setOpenDay(isDayOpen ? null : dayId)}
@@ -681,14 +881,18 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
                                 </button>
                                 <div data-day-body={dayId} style={{ display: isDayOpen ? 'block' : 'none', padding: '0 14px 14px' }}>
                                   <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-                                    {(w.actions ?? []).map((action, ai) => {
-                                      const checked = checkedSet.has(`${w.week_number}:${ai}:${today}`)
+                                    {(w.days?.[dayIndex] ?? w.actions ?? []).map((action, ai) => {
+                                      const checked = checkedSet.has(`${w.week_number}:${ai}:${dayDate}`)
                                       return (
-                                        <li key={ai} data-goal-toggle={`${w.week_number}:${ai}`} onClick={() => toggleGoal(w.week_number, ai)}
+                                        <li key={ai} data-goal-toggle={`${w.week_number}:${ai}:${dayDate}`} onClick={() => toggleGoal(w.week_number, ai, dayDate)}
                                           style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer', marginBottom: 8, padding: '2px 0' }}>
-                                          <span data-goal-icon-done style={{ display: checked ? 'inline-flex' : 'none', flexShrink: 0, marginTop: 2 }}><CheckCircle2 size={16} color={PALETTE.gold1} /></span>
-                                          <span data-goal-icon-undone style={{ display: checked ? 'none' : 'inline-flex', flexShrink: 0, marginTop: 2 }}><Circle size={16} color={PALETTE.cream} opacity={0.5} /></span>
-                                          <span data-goal-text style={{ color: PALETTE.cream, opacity: checked ? 0.55 : 0.9, fontSize: '0.92rem', lineHeight: 1.6, textDecoration: checked ? 'line-through' : 'none' }}>{action}</span>
+                                          <svg width="16" height="16" viewBox="0 0 24 24" style={{ flexShrink: 0, marginTop: 2 }}>
+                                            <circle data-goal-check-track data-on-color={PALETTE.gold1} data-off-color="rgba(243,236,218,0.4)" cx="12" cy="12" r="10" fill="none" stroke={checked ? PALETTE.gold1 : 'rgba(243,236,218,0.4)'} strokeWidth="2" style={{ transition: 'stroke 0.25s ease' }} />
+                                            <circle data-goal-check-fill cx="12" cy="12" r="10" fill={PALETTE.gold1} style={{ opacity: checked ? 1 : 0, transition: 'opacity 0.25s ease' }} />
+                                            <path data-goal-check-tick d="M7 12.5 10.5 16 17 8" fill="none" stroke="#fff" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"
+                                              strokeDasharray="16" style={{ strokeDashoffset: checked ? 0 : 16, transition: 'stroke-dashoffset 0.35s ease 0.05s' }} />
+                                          </svg>
+                                          <span data-goal-text style={{ color: PALETTE.cream, opacity: checked ? 0.55 : 0.9, fontSize: '0.92rem', lineHeight: 1.6, textDecoration: checked ? 'line-through' : 'none', transition: 'opacity 0.2s ease' }}>{action}</span>
                                         </li>
                                       )
                                     })}
@@ -819,8 +1023,8 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
           <Eyebrow>Fresh each week</Eyebrow>
           <SecTitle icon={<Sparkles size={26} />}>Superfood Of The Week</SecTitle>
           {superfoodImage && <img src={superfoodImage.image_url} alt={superfoodImage.label} style={{ width: '100%', height: 200, objectFit: 'cover', borderRadius: 12, margin: '20px 0' }} />}
-          <p style={{ fontSize: '0.95rem', lineHeight: 1.6, marginTop: superfoodImage ? 0 : 20 }}>{coachFirst} picks this fresh each week around what&apos;s in season and what&apos;s actually useful for where you are right now, rather than a fixed pick that goes stale.</p>
-          <p style={{ fontSize: '0.85rem', opacity: 0.65, marginTop: 8 }}>You&apos;ll get this alongside your recipes each week, with a short note on why it was chosen for you specifically.</p>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.7rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: PALETTE.berry, marginTop: superfoodImage ? 0 : 20, marginBottom: 4 }}>Why it&apos;s here</div>
+          <p style={{ fontSize: '0.95rem', lineHeight: 1.6, marginBottom: 0 }}>A seasonal food picked by {coachFirst} to support this week&apos;s plan.</p>
         </div>
       </section>
 
@@ -959,7 +1163,7 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
           <div data-track-content style={{ display: progress.totalDaysLogged === 0 ? 'none' : 'block' }}>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 20, marginBottom: 24 }}>
               {[
-                { key: 'streak', icon: <Flame size={14} />, value: progress.streak, label: 'day streak' },
+                { key: 'streak', icon: <StreakFlame lit={progress.streak > 0} pop={cheering} />, value: progress.streak, label: 'day streak' },
                 { key: 'days', icon: <CalendarCheck size={14} />, value: progress.totalDaysLogged, label: 'days logged, total' },
                 { key: 'goals', icon: <Target size={14} />, value: `${goalsDone}/${totalActionsInPlan}`, label: 'goals accomplished' },
                 { key: 'best', icon: <TrendingUp size={14} />, value: progress.bestMonth ? `${progress.bestMonth.pct}%` : '0%', label: progress.bestMonth ? `best month · ${progress.bestMonth.monthLabel}` : 'best month' },
@@ -998,15 +1202,23 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
                 {data.nextAppointment.time && ` · ${new Date(`2000-01-01T${data.nextAppointment.time}`).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}`}
                 {data.nextAppointment.mode && ` · ${data.nextAppointment.mode}`}
               </div>
-              <p style={{ color: PALETTE.cream, opacity: 0.85, fontSize: '0.92rem', lineHeight: 1.6 }}>Please continue following your personalized plan as recommended. Keep track of any changes, questions, or concerns so they can be discussed during your next visit.</p>
-              <p style={{ color: PALETTE.cream, opacity: 0.85, fontSize: '0.92rem', lineHeight: 1.6 }}>If you experience any unexpected or worsening symptoms, have difficulty following your plan, or are unsure about any recommendations, please contact our team before your scheduled appointment.</p>
+              <p style={{ color: PALETTE.cream, opacity: 0.85, fontSize: '0.92rem', lineHeight: 1.6, marginBottom: 6 }}>Contact your care team if you:</p>
+              <ul style={{ margin: '0 0 10px', paddingLeft: 20, color: PALETTE.cream, opacity: 0.85, fontSize: '0.92rem', lineHeight: 1.6 }}>
+                <li>Have questions about your plan</li>
+                <li>Are struggling to follow a recommendation</li>
+                <li>Notice an unexpected change in how you feel</li>
+              </ul>
+              <p style={{ color: PALETTE.cream, opacity: 0.85, fontSize: '0.92rem', lineHeight: 1.6 }}><strong>Emergency?</strong> Seek immediate medical care.</p>
             </div>
           ) : (
             <div style={{ marginTop: 20 }}>
-              <p style={{ color: PALETTE.cream, opacity: 0.85, fontSize: '0.92rem', lineHeight: 1.6 }}>Continue following your personalized care plan as recommended.</p>
-              <p style={{ color: PALETTE.cream, opacity: 0.85, fontSize: '0.92rem', lineHeight: 1.6 }}>Keep track of your progress and any questions or concerns.</p>
-              <p style={{ color: PALETTE.cream, opacity: 0.85, fontSize: '0.92rem', lineHeight: 1.6 }}>In a medical emergency, seek immediate emergency medical care.</p>
-              <p style={{ color: PALETTE.cream, opacity: 0.85, fontSize: '0.92rem', lineHeight: 1.6 }}>Contact our team if you need guidance or notice any unexpected changes in your health.</p>
+              <p style={{ color: PALETTE.cream, opacity: 0.85, fontSize: '0.92rem', lineHeight: 1.6, marginBottom: 6 }}>Contact your care team if you:</p>
+              <ul style={{ margin: '0 0 10px', paddingLeft: 20, color: PALETTE.cream, opacity: 0.85, fontSize: '0.92rem', lineHeight: 1.6 }}>
+                <li>Have questions about your plan</li>
+                <li>Are struggling to follow a recommendation</li>
+                <li>Notice an unexpected change in how you feel</li>
+              </ul>
+              <p style={{ color: PALETTE.cream, opacity: 0.85, fontSize: '0.92rem', lineHeight: 1.6 }}><strong>Emergency?</strong> Seek immediate medical care.</p>
             </div>
           )}
           {data.coach?.email && (

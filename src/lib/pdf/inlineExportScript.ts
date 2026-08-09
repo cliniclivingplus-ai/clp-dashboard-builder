@@ -23,11 +23,17 @@
 //   data-faq-trigger / data-faq-body             (value: index)
 //   data-care-trigger / data-care-body           (value: index)
 //   data-toc-trigger / data-toc-panel / data-toc-link   (jump-to-section dropdown)
-//   data-goal-toggle="week:action" data-goal-icon-done / data-goal-icon-undone / data-goal-text
+//   data-founder-trigger / data-founder-body     (round photo, tap to reveal the note)
+//   data-coach-trigger / data-coach-body         (round photo, tap to reveal the quote)
+//   data-goal-toggle="week:action:date" data-goal-icon-done / data-goal-icon-undone / data-goal-text   (date is that day-tab's own real calendar date — each day tracks independently)
+//   data-goal-check-track / data-goal-check-fill / data-goal-check-tick   (animated checkbox, on/off colors read from data-on-color/data-off-color on the track — optional, additive to the icon-done/undone pattern above)
+//   data-mascot-idle / data-mascot-mouth  data-plant-stem / data-plant-leaf1 / data-plant-leaf2 / data-plant-flower   (Almanac's mascot+plant hero, continuous with pct — optional)
+//   data-streak-flame                     (lit/unlit + pop, path's on/off colors read from data-on-color/data-off-color — optional)
 //   data-grocery-item="week:category:item" data-grocery-icon-done / data-grocery-icon-undone / data-grocery-item-text
 //   data-stat-pct="monthNumber" data-stat-sub="monthNumber"   (Track your progress per-month numbers)
 //   data-stat="streak|days|goals|best" data-stat-label="best"
 //   data-track-empty / data-track-content
+//   data-trail-fill (path, dash-animated) / data-trail-flag="monthNumber" (circle's on/active/upcoming colors read from data-done-color/data-active-color/data-upcoming-color — optional; shares data-month-trigger with the month pill so a click opens the same month)
 
 type MonthExportData = { monthNumber: number; monthLabel: string; weeks: { week_number: number; totalActions: number }[] }
 
@@ -79,6 +85,17 @@ function clpCloseToc(){
   if (panel) panel.style.display = 'none';
 }
 
+// ── founder's note / coach quote — round photo, tap to reveal (only one
+// of each on the page, so no id parameter needed) ──
+function clpToggleFounder(){
+  var body = document.querySelector('[data-founder-body]');
+  if (body) body.style.display = (body.style.display === 'block') ? 'none' : 'block';
+}
+function clpToggleCoach(){
+  var body = document.querySelector('[data-coach-body]');
+  if (body) body.style.display = (body.style.display === 'block') ? 'none' : 'block';
+}
+
 // ── single-open-at-a-time groups (month/week/recipe/grocery-month/grocery-week) ──
 function clpSetPillActive(el, active){
   if (!el) return;
@@ -92,7 +109,9 @@ function clpToggleGroup(triggerAttr, bodyAttr, id, onOpen){
   document.querySelectorAll('[' + triggerAttr + ']').forEach(function(el){ clpSetPillActive(el, false); });
   if (!isOpen && body) {
     body.style.display = 'block';
-    clpSetPillActive(document.querySelector('[' + triggerAttr + '="' + id + '"]'), true);
+    // A month can have two triggers pointing at it (the pill button and the
+    // roadmap trail's flag) — restyle every match, not just the first.
+    document.querySelectorAll('[' + triggerAttr + '="' + id + '"]').forEach(function(el){ clpSetPillActive(el, true); });
   }
   if (onOpen) onOpen(!isOpen);
 }
@@ -190,6 +209,27 @@ function initGroceryExport(){
   });
 }
 
+// Restarts a one-shot CSS keyframe animation reliably even on rapid repeat
+// triggers — set the animation, force a reflow, browsers replay it cleanly
+// from there. Used for the streak flame pop, which has no idle animation
+// to return to afterward.
+function clpPulse(el, animationCss){
+  if (!el) return;
+  el.style.animation = 'none';
+  void el.offsetWidth;
+  el.style.animation = animationCss;
+}
+// The mascot's cheer is the same one-shot restart trick, but it has to
+// hand control back to its own infinite idle bob once the cheer finishes —
+// left alone, the one-shot keyframe would just hold at its end frame and
+// the mascot would stop bobbing after the very first cheer.
+function clpMascotCheer(){
+  var el = document.querySelector('[data-mascot-idle]');
+  if (!el) return;
+  clpPulse(el, 'clpMascotCheer 0.7s ease');
+  setTimeout(function(){ el.style.animation = 'clpMascotBob 3.2s ease-in-out infinite'; }, 700);
+}
+
 // ── goal check-off — personal, localStorage only, never synced back to the app ──
 function clpSetGoalVisual(el, done){
   var doneIcon = el.querySelector('[data-goal-icon-done]');
@@ -198,11 +238,21 @@ function clpSetGoalVisual(el, done){
   if (doneIcon) doneIcon.style.display = done ? 'inline-flex' : 'none';
   if (undoneIcon) undoneIcon.style.display = done ? 'none' : 'inline-flex';
   if (text) { text.style.textDecoration = done ? 'line-through' : 'none'; text.style.color = done ? '${C.muted}' : '${C.inkSoft}'; }
+  // Animated checkbox (draw-in tick), additive — no-ops for templates that
+  // don't render these hooks.
+  var checkTrack = el.querySelector('[data-goal-check-track]');
+  var checkFill = el.querySelector('[data-goal-check-fill]');
+  var checkTick = el.querySelector('[data-goal-check-tick]');
+  if (checkTrack) checkTrack.style.stroke = checkTrack.getAttribute(done ? 'data-on-color' : 'data-off-color') || checkTrack.style.stroke;
+  if (checkFill) checkFill.style.opacity = done ? '1' : '0';
+  if (checkTick) checkTick.style.strokeDashoffset = done ? '0' : '16';
 }
+// key is "week:action:date" — date is that specific day-tab's own real
+// calendar date (baked in at render time), not always today, so each day
+// tracks independently instead of every day-row sharing one checkin.
 function toggleGoalExport(key, el){
   var parts = key.split(':');
-  var week = parseInt(parts[0], 10), action = parseInt(parts[1], 10);
-  var dateStr = clpTodayISO();
+  var week = parseInt(parts[0], 10), action = parseInt(parts[1], 10), dateStr = parts[2];
   var list = clpGetCheckins();
   var idx = -1;
   for (var i = 0; i < list.length; i++) {
@@ -212,20 +262,49 @@ function toggleGoalExport(key, el){
   if (idx >= 0) { list.splice(idx, 1); done = false; }
   else { list.push({ week_number: week, action_index: action, checkin_date: dateStr }); done = true; }
   clpSetCheckins(list);
-  // The same goal can appear more than once on the page (one row per day
-  // of the week, all showing the same underlying weekly goal) — update
-  // every matching row, not just the one clicked, so they never drift out
-  // of sync with each other.
   document.querySelectorAll('[data-goal-toggle="' + key + '"]').forEach(function(row){ clpSetGoalVisual(row, done); });
+  // Brief mascot cheer + flame pop on a fresh check-off, never on uncheck —
+  // no-ops for templates without these hooks.
+  if (done) {
+    clpMascotCheer();
+    clpPulse(document.querySelector('[data-streak-flame]'), 'clpFlamePop 0.5s ease');
+  }
   renderProgressExport();
 }
 function initGoalsExport(){
   var list = clpGetCheckins();
-  var today = clpTodayISO();
   var doneSet = {};
-  list.forEach(function(c){ if (c.checkin_date === today) doneSet[c.week_number + ':' + c.action_index] = true; });
+  list.forEach(function(c){ doneSet[c.week_number + ':' + c.action_index + ':' + c.checkin_date] = true; });
   document.querySelectorAll('[data-goal-toggle]').forEach(function(el){
     clpSetGoalVisual(el, !!doneSet[el.getAttribute('data-goal-toggle')]);
+  });
+}
+
+// Re-drives the roadmap trail (fill length + each flag's color) from the
+// same real per-month pct renderProgressExport just computed — a no-op if
+// this template doesn't have the trail hooks. Colors are read back off each
+// flag's own data-*-color attributes so this stays template-agnostic.
+function clpUpdateTrail(monthPctList){
+  var n = monthPctList.length;
+  if (n < 1) return;
+  var fillPath = document.querySelector('[data-trail-fill]');
+  if (fillPath) {
+    var len = fillPath.getTotalLength ? fillPath.getTotalLength() : 400;
+    var avg = monthPctList.reduce(function(s, m){ return s + m.pct; }, 0) / (n * 100);
+    fillPath.style.strokeDasharray = String(len);
+    fillPath.style.strokeDashoffset = String(len - len * avg);
+  }
+  var activeIdx = -1;
+  monthPctList.forEach(function(m, i){ if (activeIdx === -1 && m.pct < 100) activeIdx = i; });
+  if (activeIdx === -1) activeIdx = n - 1;
+  monthPctList.forEach(function(m, i){
+    var flag = document.querySelector('[data-trail-flag="' + m.monthNumber + '"]');
+    var circle = flag && flag.querySelector('circle');
+    if (!flag || !circle) return;
+    var done = m.pct >= 100;
+    var isActive = i === activeIdx;
+    var color = flag.getAttribute(done ? 'data-done-color' : isActive ? 'data-active-color' : 'data-upcoming-color');
+    if (color) circle.style.fill = color;
   });
 }
 
@@ -249,6 +328,7 @@ function renderProgressExport(){
   CLP_MONTHS.forEach(function(m){ m.weeks.forEach(function(w){ totalActionsInPlan += w.totalActions; }); });
 
   var bestPct = -1, bestLabel = '';
+  var monthPctList = [];
   CLP_MONTHS.forEach(function(m){
     var total = 0, done = 0;
     m.weeks.forEach(function(w){
@@ -261,9 +341,15 @@ function renderProgressExport(){
     clpSetText('[data-stat-pct="' + m.monthNumber + '"]', pct + '%');
     clpSetText('[data-stat-sub="' + m.monthNumber + '"]', done + '/' + total + ' goals');
     if (done > 0 && pct > bestPct) { bestPct = pct; bestLabel = m.monthLabel; }
+    monthPctList.push({ monthNumber: m.monthNumber, pct: pct });
   });
+  clpUpdateTrail(monthPctList);
 
   clpSetText('[data-stat="streak"]', streak);
+  // Streak flame lights up once there's a real streak — reads its own
+  // on/off colors so the shared script never hardcodes a template's palette.
+  var flame = document.querySelector('[data-streak-flame] path');
+  if (flame) flame.style.fill = flame.getAttribute(streak > 0 ? 'data-on-color' : 'data-off-color') || flame.style.fill;
   clpSetText('[data-stat="days"]', totalDaysLogged);
   clpSetText('[data-stat="goals"]', goalsDone + '/' + totalActionsInPlan);
   clpSetText('[data-stat="best"]', bestPct >= 0 ? bestPct + '%' : '0%');
@@ -287,16 +373,25 @@ function clpStageForPct(pct){ return pct >= 85 ? 4 : pct >= 60 ? 3 : pct >= 35 ?
 function clpUpdateHero(pct, goalsDone, totalActionsInPlan){
   document.querySelectorAll('[data-goals-done]').forEach(function(el){ el.textContent = goalsDone; });
 
-  // Almanac: pre-rendered tree stages, toggle which one is visible
-  var treeStages = document.querySelectorAll('[data-tree-stage]');
-  if (treeStages.length) {
-    var stage = clpStageForPct(pct);
-    treeStages.forEach(function(el){
-      el.style.display = (el.getAttribute('data-tree-stage') === String(stage)) ? 'block' : 'none';
-    });
+  // Almanac: mascot's companion plant grows continuously with pct — same
+  // stroke-dashoffset/opacity/scale transitions the live page uses, this
+  // just re-drives them with the new value after an offline check-in.
+  var stem = document.querySelector('[data-plant-stem]');
+  if (stem) {
+    var clamped = Math.max(0, Math.min(100, pct));
+    var stemLen = 70;
+    stem.style.strokeDashoffset = String(stemLen - (stemLen * clamped) / 100);
+    var leaf1 = document.querySelector('[data-plant-leaf1]');
+    var leaf2 = document.querySelector('[data-plant-leaf2]');
+    var flowerEl = document.querySelector('[data-plant-flower]');
+    if (leaf1) { var on1 = clamped >= 20; leaf1.style.opacity = on1 ? '1' : '0'; leaf1.style.transform = on1 ? 'scale(1)' : 'scale(0.4)'; }
+    if (leaf2) { var on2 = clamped >= 50; leaf2.style.opacity = on2 ? '1' : '0'; leaf2.style.transform = on2 ? 'scale(1)' : 'scale(0.4)'; }
+    if (flowerEl) { var on3 = clamped >= 85; flowerEl.style.opacity = on3 ? '1' : '0'; flowerEl.style.transform = on3 ? 'scale(1)' : 'scale(0.3)'; }
+    var mouth = document.querySelector('[data-mascot-mouth]');
+    if (mouth) mouth.setAttribute('d', clamped >= 85 ? 'M45 65 Q56 76 67 65' : (clamped > 0 ? 'M46 67 Q56 73 66 67' : 'M46 66 Q56 72 66 66'));
     var caption = document.querySelector('[data-growth-caption]');
     if (caption && totalActionsInPlan > 0) {
-      caption.textContent = CLP_GROWTH_LABELS[stage] + ' · ' + goalsDone + '/' + totalActionsInPlan + ' goals tracked';
+      caption.textContent = CLP_GROWTH_LABELS[clpStageForPct(pct)] + ' · ' + goalsDone + '/' + totalActionsInPlan + ' goals tracked';
     }
   }
 

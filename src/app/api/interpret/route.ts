@@ -5,9 +5,11 @@ import { supabaseAdmin } from '@/lib/supabase'
 import Groq from 'groq-sdk'
 import { embedText } from '@/lib/embeddings'
 
-// A 12-month plan now runs up to 4 sequential weekly-schedule chunk calls
-// (on top of the 4 earlier steps), which can exceed the old 60s budget.
-export const maxDuration = 180
+// A 12-month plan now runs up to 8 sequential weekly-schedule chunk calls
+// (on top of the 4 earlier steps) since each week's response got much bigger
+// once it started including a 7-day escalation breakdown, not just one
+// shared set of actions — well beyond the old 60s budget.
+export const maxDuration = 280
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY })
 
 function extractJSON(text: string): unknown {
@@ -22,7 +24,7 @@ function extractJSON(text: string): unknown {
 
 export async function POST(req: NextRequest) {
   try {
-    const { session_id, patient_id, duration_months = 1 } = await req.json()
+    const { session_id, patient_id, duration_months = 1, refresh_roadmap_id } = await req.json()
     if (!session_id || !patient_id) return NextResponse.json({ error: 'Missing params' }, { status: 400 })
 
     const [{ data: session }, { data: patient }, { data: reports }] = await Promise.all([
@@ -277,13 +279,14 @@ Each starts with •. Specific to this patient. No generic statements.` }
       : duration_months * 4
 
     // A single completion can't reliably produce a full 12-month (48-week)
-    // schedule — each week's JSON object runs well over 300 tokens, so 48
-    // weeks needs ~14,400 tokens against the model's ~8,192 output ceiling.
-    // Generating in ~12-week (one quarter) chunks keeps every individual
-    // call well inside that limit regardless of total duration, and each
-    // chunk is told which phase of the overall arc it represents so the
-    // progression (eliminate → repair → rebuild) still holds across chunks.
-    const WEEKS_PER_CHUNK = 12
+    // schedule — each week's JSON object now includes a 7-day escalation
+    // breakdown on top of the base fields, roughly 800+ tokens per week, so
+    // even 12 weeks alone would run past the model's ~8,192 output ceiling.
+    // Generating in 6-week chunks keeps every individual call well inside
+    // that limit regardless of total duration, and each chunk is told which
+    // phase of the overall arc it represents so the progression (eliminate →
+    // repair → rebuild) still holds across chunks.
+    const WEEKS_PER_CHUNK = 6
     const chunkRanges: { startWeek: number; endWeek: number }[] = []
     for (let start = 1; start <= totalWeeks; start += WEEKS_PER_CHUNK) {
       chunkRanges.push({ startWeek: start, endWeek: Math.min(start + WEEKS_PER_CHUNK - 1, totalWeeks) })
@@ -332,6 +335,13 @@ RULES FOR ACTIONS:
 - Reference their actual food/schedule from Q&A and patient facts
 - Actions should NOT suggest "consult a doctor" or "consult a nutritionist" — she is already at CLP
 
+RULES FOR "days" (daily escalation within the week):
+- Exactly 7 entries, one per day of THIS week, in order: Sunday, Monday, Tuesday, Wednesday, Thursday, Friday, Saturday
+- Each day has exactly 3 short lines, one per action above in the same order, giving that day's specific version of it
+- Escalate gradually across the week — Sunday is the easiest/starting amount, Saturday is the most advanced — while staying safe and achievable, building toward the week's milestone
+- Keep each line SHORT (under 14 words): just that day's exact quantity/timing for the action, not the full action text or its rationale again
+- E.g. for "Eat 2 tbsp ground flaxseed in warm water at 7am daily": Sunday "1 tbsp flaxseed in warm water at 7am", Wednesday "1.5 tbsp flaxseed in warm water at 7am", Saturday "2 tbsp flaxseed in warm water at 7am"
+
 [{
   "week_number": ${startWeek},
   "focus_theme": "Specific clinical theme",
@@ -341,13 +351,18 @@ RULES FOR ACTIONS:
     "Second specific action with quantity and timing, scientific rationale",
     "Third specific action tied to their actual daily schedule"
   ],
+  "days": [
+    ["Sunday's short version of action 1", "Sunday's short version of action 2", "Sunday's short version of action 3"],
+    ["Monday's short version of action 1", "Monday's short version of action 2", "Monday's short version of action 3"],
+    "… 7 total, Sunday through Saturday, each escalating slightly from the day before"
+  ],
   "milestone": "By end of this week, if you follow all actions: [1-2 specific, measurable changes the patient will notice, e.g. bloating reduces, energy improves by afternoon, bowel movement becomes regular]. Be specific and realistic."
 }]
 
-Exactly ${weeksInChunk} items, week_number ${startWeek} through ${endWeek}. Each week must address a different physiological system or mechanism.` }
+Exactly ${weeksInChunk} items, week_number ${startWeek} through ${endWeek}. Each week must address a different physiological system or mechanism. Every week needs its own complete "days" array — never omit it or leave it shorter than 7 entries.` }
         ],
         temperature: 0.3,
-        max_tokens: Math.min(4000, weeksInChunk * 320 + 200),
+        max_tokens: Math.min(8000, weeksInChunk * 850 + 300),
       })
       const raw = res.choices[0]?.message?.content ?? ''
       const parsed = extractJSON(raw)
@@ -375,13 +390,24 @@ Exactly ${weeksInChunk} items, week_number ${startWeek} through ${endWeek}. Each
     }
 
     // ── Save ─────────────────────────────────────────────────
-    const { data: roadmap, error: roadmapError } = await supabaseAdmin
-      .from('roadmaps')
-      .insert({ session_id, patient_id, overview, lifestyle_guidelines, nutritionist_guidelines, weekly_schedule: weeklySchedule, kb_sources: kbSources, duration_months, status: 'draft' })
-      .select().single()
+    // A refresh writes fresh AI content into the SAME roadmap row (same id)
+    // instead of inserting a new one — the patient's already-shared
+    // /dashboard/{roadmapId} link keeps working unchanged, they just see
+    // updated content next time they open it. guide_overrides (template,
+    // theme, care team, hidden sections, etc.) is a coach's own separate
+    // configuration and is deliberately left untouched by a refresh.
+    const roadmapWrite = { overview, lifestyle_guidelines, nutritionist_guidelines, weekly_schedule: weeklySchedule, kb_sources: kbSources, duration_months }
+    const { data: roadmap, error: roadmapError } = refresh_roadmap_id
+      ? await supabaseAdmin.from('roadmaps').update(roadmapWrite).eq('id', refresh_roadmap_id).select().single()
+      : await supabaseAdmin.from('roadmaps').insert({ session_id, patient_id, ...roadmapWrite, status: 'draft' }).select().single()
 
     if (roadmapError) throw new Error(roadmapError.message)
     await supabaseAdmin.from('sessions').update({ status: 'interpreted' }).eq('id', session_id)
+    // Old check-ins were against the previous plan's actual task text —
+    // meaningless once that text is replaced, so a refresh starts the
+    // patient's tracking clean against the new content rather than showing
+    // "goals done" that don't correspond to anything on the page anymore.
+    if (refresh_roadmap_id) await supabaseAdmin.from('roadmap_checkins').delete().eq('roadmap_id', refresh_roadmap_id)
     console.log('=== DONE ===')
 
     return NextResponse.json({ success: true, roadmap_id: roadmap.id, roadmap: { ...roadmap, weekly_schedule: weeklySchedule } })
