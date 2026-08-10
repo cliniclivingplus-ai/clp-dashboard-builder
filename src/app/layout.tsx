@@ -4,7 +4,7 @@ import Link from 'next/link'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'CLP Compass',
+  title: 'CLP Dashboard Builder (CDB)',
   description: 'Clinical nutrition co-pilot for Clinic Living Plus',
 }
 
@@ -48,7 +48,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               🧭
             </div>
             <div style={{ lineHeight: 1.2 }}>
-              <div style={{ fontWeight: 700, fontSize: 15.5, color: '#1A2417', letterSpacing: '-0.01em' }}>CLP Compass</div>
+              <div style={{ fontWeight: 700, fontSize: 15.5, color: '#1A2417', letterSpacing: '-0.01em' }}>CLP Dashboard Builder <span style={{ fontWeight: 500, opacity: 0.6 }}>(CDB)</span></div>
               <div style={{ fontSize: 11.5, color: '#8A9284' }}>Clinic Living Plus · Bangalore</div>
             </div>
           </Link>

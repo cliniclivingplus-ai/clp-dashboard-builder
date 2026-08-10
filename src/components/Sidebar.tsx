@@ -18,7 +18,7 @@ export default function Sidebar() {
             <Compass size={20} color="#fff" />
           </div>
           <div>
-            <div style={{ fontWeight: 700, fontSize: 15, color: '#111827' }}>CLP Compass</div>
+            <div style={{ fontWeight: 700, fontSize: 15, color: '#111827' }}>CLP Dashboard Builder (CDB)</div>
             <div style={{ fontSize: 11, color: '#6b7280' }}>Nutrition Platform</div>
           </div>
         </div>
