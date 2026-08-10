@@ -1,4 +1,4 @@
-# CLP Compass 🧭
+# clp-dashboard-builder 🧭
 **Clinical co-pilot for nutritionists at Clinic Living Plus, Bangalore.**
 
 Paste a Gemini meeting doc → AI extracts patient profile + Q&A → generates a personalized health roadmap → share with patient via link or PDF.
