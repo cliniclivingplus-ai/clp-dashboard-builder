@@ -15,6 +15,7 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import {
   HeartPulse, Utensils, Pill, Phone, CalendarCheck, HelpCircle, ChefHat, MapPin, ChevronDown, ChevronRight, X, Download,
   CheckCircle2, Circle, Sparkles, Star, ShoppingCart, Video, MessageCircle, Activity, Stethoscope, Users, Flame, Target, TrendingUp,
+  Moon, Droplet, Brain, Sun, Footprints, Smartphone, Link as LinkIcon,
   type LucideIcon,
 } from 'lucide-react'
 import type { GuideData, DayMealSlot } from '@/lib/pdf/ClientGuideDocument'
@@ -24,7 +25,7 @@ import { reshapeRoadmapIntoMonths, type WeeklyPlan } from '@/lib/pdf/reshapeRoad
 import { getSlotRecipes } from '@/lib/pdf/weekRecipes'
 import { renderMarkdownBold } from '@/lib/renderMarkdownBold'
 import { splitRecipeLines } from '@/lib/recipeText'
-import { FOOD_PLATES, GROCERY_CATEGORIES, type MealType } from '@/lib/foodPlates'
+import { GROCERY_CATEGORIES } from '@/lib/foodPlates'
 import { buildGroceryList, type GroceryCategory } from '@/lib/groceryList'
 import { matchGuideImageDistinct } from '@/lib/pdf/matchGuideImage'
 import { buildInlineExportScript } from '@/lib/pdf/inlineExportScript'
@@ -32,7 +33,6 @@ import { buildInlineExportScript } from '@/lib/pdf/inlineExportScript'
 const DAY_MEAL_SLOTS: DayMealSlot[] = ['breakfast', 'lunch', 'dinner', 'snack', 'dessert']
 const SLOT_LABELS: Record<DayMealSlot, string> = { breakfast: 'Breakfast', lunch: 'Lunch', dinner: 'Dinner', snack: 'Snacks', dessert: 'Desserts' }
 const DAY_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
-const MEAL_TYPES: MealType[] = ['breakfast', 'lunch', 'dinner']
 
 const CARE_ICON_MAP: Record<string, LucideIcon> = {
   coaching: Star, video: Video, phone: Phone, chat: MessageCircle, nutrition: Utensils,
@@ -90,6 +90,20 @@ function splitKV(bullet: string): { k: string | null; v: string } {
   return m ? { k: m[1].trim(), v: m[2].trim() } : { k: null, v: bullet }
 }
 
+const LIFESTYLE_ICON_RULES: [RegExp, LucideIcon][] = [
+  [/\b(sleep|bedtime|wind[- ]down|rest)\b/i, Moon],
+  [/\b(water|hydrat|fluid)\b/i, Droplet],
+  [/\b(walk|step|exercise|movement|activity|stretch|workout)\b/i, Footprints],
+  [/\b(stress|cortisol|relax|breath|meditat|mindful|anxiety)\b/i, Brain],
+  [/\b(meal|eat|food|breakfast|lunch|dinner|snack|diet|protein|fiber|sugar)\b/i, Utensils],
+  [/\b(screen|phone|device|scroll)\b/i, Smartphone],
+  [/\b(sun|morning|light|wake)\b/i, Sun],
+]
+function iconForBullet(text: string): LucideIcon {
+  for (const [pattern, Icon] of LIFESTYLE_ICON_RULES) if (pattern.test(text)) return Icon
+  return HeartPulse
+}
+
 const ONYX = {
   bg: '#101114', card: '#17181C', border: 'rgba(255,255,255,0.08)',
   ink: '#F4F2EC', inkSoft: '#C9C7C0', muted: '#8A8A8E',
@@ -145,15 +159,23 @@ function Card({ id, hidden, children, style }: { id?: string; hidden?: boolean; 
   )
 }
 
-function KVGrid({ items }: { items: string[] }) {
+function KVGrid({ items, showIcons }: { items: string[]; showIcons?: boolean }) {
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10, marginTop: 18 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: showIcons ? '1fr' : 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10, marginTop: 18 }}>
       {items.map((bullet, i) => {
         const { k, v } = splitKV(bullet)
+        const Icon = showIcons ? iconForBullet(bullet) : null
         return (
-          <div key={i} style={{ border: `1px solid ${ONYX.border}`, borderRadius: 2, padding: '12px 14px', background: ONYX.bg }}>
-            {k && <span style={{ display: 'block', fontSize: 10, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: ONYX.accent, marginBottom: 4 }}>{k}</span>}
-            <span style={{ fontSize: '0.9rem', lineHeight: 1.5, color: ONYX.inkSoft }}>{renderMarkdownBold(v)}</span>
+          <div key={i} style={{ border: `1px solid ${ONYX.border}`, borderRadius: 2, padding: '12px 14px', background: ONYX.bg, display: 'flex', gap: Icon ? 14 : 0, alignItems: 'center' }}>
+            {Icon && (
+              <div style={{ width: 30, height: 30, borderRadius: 2, background: ONYX.accentSoft, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <Icon size={14} color={ONYX.accent} />
+              </div>
+            )}
+            <div>
+              {k && <span style={{ display: 'block', fontSize: 10, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: ONYX.accent, marginBottom: 4 }}>{k}</span>}
+              <span style={{ fontSize: '0.9rem', lineHeight: 1.5, color: ONYX.inkSoft }}>{renderMarkdownBold(v)}</span>
+            </div>
           </div>
         )
       })}
@@ -270,9 +292,6 @@ export default function OnyxTemplate({ roadmapId, data, initialCheckins }: { roa
       revert()
     }
   }
-
-  const [activeMeal, setActiveMeal] = useState<MealType>('breakfast')
-  const mealMatches = { breakfast: weekMealMatches.breakfast.slice(0, 2), lunch: weekMealMatches.lunch.slice(0, 2), dinner: weekMealMatches.dinner.slice(0, 2) }
 
   const [openGroceryMonth, setOpenGroceryMonth] = useState<number | null>(null)
   const [openGroceryWeek, setOpenGroceryWeek] = useState<number | null>(null)
@@ -726,76 +745,31 @@ export default function OnyxTemplate({ roadmapId, data, initialCheckins }: { roa
           <Card id="lifestyle" hidden={isHidden('lifestyle')}>
             <Eyebrow>Every day</Eyebrow>
             <SecTitle icon={<HeartPulse size={18} />}>Lifestyle guidelines</SecTitle>
-            <KVGrid items={lifestyleBullets} />
+            <KVGrid items={lifestyleBullets} showIcons />
           </Card>
         )}
 
-        {/* Diet protocol — tied to the 'nutrition' toggle, same as
-            Almanac/Pulse, since Classic/PDF don't have a separate section
-            for this. */}
-        {parsed.dietProtocol.length > 0 && (
-          <Card id="dietprotocol" hidden={isHidden('nutrition')}>
-            <Eyebrow>Nutrition</Eyebrow>
-            <SecTitle icon={<Utensils size={18} />}>Diet protocol</SecTitle>
-            <KVGrid items={parsed.dietProtocol} />
-          </Card>
-        )}
-
-        {/* Your power plates */}
-        <Card id="nutrition" hidden={isHidden('nutrition')}>
-          <Eyebrow>Building your plate</Eyebrow>
-          <SecTitle icon={<Utensils size={18} />}>Your power plates</SecTitle>
-          <div style={{ display: 'flex', gap: 8, marginTop: 16, marginBottom: 18 }}>
-            {MEAL_TYPES.map((meal) => (
-              <button key={meal} data-meal-trigger={meal} onClick={() => setActiveMeal(meal)}
-                style={{
-                  padding: '7px 16px', borderRadius: 2, cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600, letterSpacing: '0.03em', textTransform: 'uppercase',
-                  border: activeMeal === meal ? 'none' : `1px solid ${ONYX.border}`,
-                  background: activeMeal === meal ? ONYX.accent : 'transparent', color: activeMeal === meal ? ONYX.onAccent : ONYX.inkSoft,
-                }}>
-                {meal}
-              </button>
-            ))}
-          </div>
-          {MEAL_TYPES.map((meal) => {
-            const plate = FOOD_PLATES[meal]
-            const recipes = mealMatches[meal]
-            return (
-              <div key={meal} data-meal-body={meal} style={{ display: meal === activeMeal ? 'block' : 'none' }}>
-                <div style={{ fontSize: '0.8rem', color: ONYX.muted, marginBottom: 14 }}>{plate.ratios}</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  {plate.columns.map((col) => (
-                    <div key={col.head}>
-                      <span style={{ fontSize: '0.68rem', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: ONYX.accentDeep }}>{col.head}</span>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
-                        {col.items.map((item) => (
-                          <span key={item} style={{ fontSize: '0.78rem', padding: '4px 10px', borderRadius: 2, background: ONYX.accentSoft, color: ONYX.accentDeep, border: `1px solid ${ONYX.border}` }}>{item}</span>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                {recipes.length > 0 && (
-                  <div style={{ marginTop: 18, paddingTop: 14, borderTop: `1px solid ${ONYX.border}` }}>
-                    <span style={{ fontSize: '0.68rem', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: ONYX.muted }}>Picked for {meal}</span>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
-                      {recipes.map((m) => (
-                        <div key={m.recipe.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 12px', borderRadius: 2, border: `1px solid ${ONYX.border}` }}>
-                          {m.recipe.image_url ? (
-                            <img src={m.recipe.image_url} alt={m.recipe.name} style={{ width: 42, height: 42, borderRadius: 2, objectFit: 'cover', flexShrink: 0 }} />
-                          ) : (
-                            <div style={{ width: 42, height: 42, borderRadius: 2, background: ONYX.accentSoft, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><ChefHat size={16} color={ONYX.accent} /></div>
-                          )}
-                          <div style={{ fontSize: '0.83rem', fontWeight: 500, color: ONYX.inkSoft }}>{m.recipe.name}{m.recipe.protein_label ? ` · ${m.recipe.protein_label}` : ''}</div>
-                        </div>
-                      ))}
-                    </div>
+        {/* Power points — coach-pasted links each with a short note */}
+        {data.powerPoints.filter((pp) => pp.url).length > 0 && (
+          <Card id="nutrition" hidden={isHidden('nutrition')}>
+            <Eyebrow>Worth a look</Eyebrow>
+            <SecTitle icon={<LinkIcon size={18} />}>Your power points</SecTitle>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 16 }}>
+              {data.powerPoints.filter((pp) => pp.url).map((pp, i) => (
+                <a key={i} href={pp.url} target="_blank" rel="noopener noreferrer"
+                  style={{ display: 'flex', alignItems: 'flex-start', gap: 12, textDecoration: 'none', padding: '12px 14px', borderRadius: 2, border: `1px solid ${ONYX.border}` }}>
+                  <div style={{ width: 34, height: 34, borderRadius: 2, background: ONYX.accentSoft, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <LinkIcon size={16} color={ONYX.accent} />
                   </div>
-                )}
-              </div>
-            )
-          })}
-        </Card>
+                  <div style={{ minWidth: 0 }}>
+                    {pp.note && <div style={{ fontSize: '0.88rem', color: ONYX.inkSoft, lineHeight: 1.5, marginBottom: 3 }}>{renderMarkdownBold(pp.note)}</div>}
+                    <div style={{ fontSize: '0.78rem', color: ONYX.accent, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pp.url}</div>
+                  </div>
+                </a>
+              ))}
+            </div>
+          </Card>
+        )}
 
         {/* Superfood of the week */}
         <Card id="superfood" hidden={isHidden('superfood')}>

@@ -11,6 +11,7 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import {
   HeartPulse, Utensils, Pill, Phone, CalendarCheck, HelpCircle, ChefHat, MapPin, ChevronDown, ChevronRight, X, Download,
   CheckCircle2, Circle, Sparkles, Star, ShoppingCart, Video, MessageCircle, Activity, Stethoscope, Users, Flame, Target, TrendingUp,
+  Moon, Droplet, Brain, Sun, Footprints, Smartphone, Link as LinkIcon,
   type LucideIcon,
 } from 'lucide-react'
 import type { GuideData, DayMealSlot } from '@/lib/pdf/ClientGuideDocument'
@@ -20,7 +21,7 @@ import { reshapeRoadmapIntoMonths, type WeeklyPlan } from '@/lib/pdf/reshapeRoad
 import { getSlotRecipes } from '@/lib/pdf/weekRecipes'
 import { renderMarkdownBold } from '@/lib/renderMarkdownBold'
 import { splitRecipeLines } from '@/lib/recipeText'
-import { FOOD_PLATES, GROCERY_CATEGORIES, type MealType } from '@/lib/foodPlates'
+import { GROCERY_CATEGORIES } from '@/lib/foodPlates'
 import { buildGroceryList, type GroceryCategory } from '@/lib/groceryList'
 import { matchGuideImageDistinct } from '@/lib/pdf/matchGuideImage'
 import { buildInlineExportScript } from '@/lib/pdf/inlineExportScript'
@@ -28,7 +29,6 @@ import { buildInlineExportScript } from '@/lib/pdf/inlineExportScript'
 const DAY_MEAL_SLOTS: DayMealSlot[] = ['breakfast', 'lunch', 'dinner', 'snack', 'dessert']
 const SLOT_LABELS: Record<DayMealSlot, string> = { breakfast: 'Breakfast', lunch: 'Lunch', dinner: 'Dinner', snack: 'Snacks', dessert: 'Desserts' }
 const DAY_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
-const MEAL_TYPES: MealType[] = ['breakfast', 'lunch', 'dinner']
 
 const CARE_ICON_MAP: Record<string, LucideIcon> = {
   coaching: Star, video: Video, phone: Phone, chat: MessageCircle, nutrition: Utensils,
@@ -75,6 +75,20 @@ function parseBullets(text: string): string[] {
 function splitKV(bullet: string): { k: string | null; v: string } {
   const m = bullet.match(/^([^:]{2,30}):\s*(.+)$/)
   return m ? { k: m[1].trim(), v: m[2].trim() } : { k: null, v: bullet }
+}
+
+const LIFESTYLE_ICON_RULES: [RegExp, LucideIcon][] = [
+  [/\b(sleep|bedtime|wind[- ]down|rest)\b/i, Moon],
+  [/\b(water|hydrat|fluid)\b/i, Droplet],
+  [/\b(walk|step|exercise|movement|activity|stretch|workout)\b/i, Footprints],
+  [/\b(stress|cortisol|relax|breath|meditat|mindful|anxiety)\b/i, Brain],
+  [/\b(meal|eat|food|breakfast|lunch|dinner|snack|diet|protein|fiber|sugar)\b/i, Utensils],
+  [/\b(screen|phone|device|scroll)\b/i, Smartphone],
+  [/\b(sun|morning|light|wake)\b/i, Sun],
+]
+function iconForBullet(text: string): LucideIcon {
+  for (const [pattern, Icon] of LIFESTYLE_ICON_RULES) if (pattern.test(text)) return Icon
+  return HeartPulse
 }
 
 const PULSE = {
@@ -131,15 +145,23 @@ function Card({ id, hidden, children, style }: { id?: string; hidden?: boolean; 
   )
 }
 
-function KVGrid({ items }: { items: string[] }) {
+function KVGrid({ items, showIcons }: { items: string[]; showIcons?: boolean }) {
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10, marginTop: 18 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: showIcons ? '1fr' : 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10, marginTop: 18 }}>
       {items.map((bullet, i) => {
         const { k, v } = splitKV(bullet)
+        const Icon = showIcons ? iconForBullet(bullet) : null
         return (
-          <div key={i} style={{ border: `1px solid ${PULSE.border}`, borderRadius: 12, padding: '12px 14px', background: PULSE.bg }}>
-            {k && <span style={{ display: 'block', fontSize: 10.5, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: PULSE.accent, marginBottom: 4 }}>{k}</span>}
-            <span style={{ fontSize: '0.9rem', lineHeight: 1.5, color: PULSE.ink }}>{renderMarkdownBold(v)}</span>
+          <div key={i} style={{ border: `1px solid ${PULSE.border}`, borderRadius: 12, padding: '12px 14px', background: PULSE.bg, display: 'flex', gap: Icon ? 14 : 0, alignItems: 'center' }}>
+            {Icon && (
+              <div style={{ width: 32, height: 32, borderRadius: 9, background: PULSE.accentSoft, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <Icon size={15} color={PULSE.accentDeep} />
+              </div>
+            )}
+            <div>
+              {k && <span style={{ display: 'block', fontSize: 10.5, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: PULSE.accent, marginBottom: 4 }}>{k}</span>}
+              <span style={{ fontSize: '0.9rem', lineHeight: 1.5, color: PULSE.ink }}>{renderMarkdownBold(v)}</span>
+            </div>
           </div>
         )
       })}
@@ -257,9 +279,6 @@ export default function PulseTemplate({ roadmapId, data, initialCheckins }: { ro
       revert()
     }
   }
-
-  const [activeMeal, setActiveMeal] = useState<MealType>('breakfast')
-  const mealMatches = { breakfast: weekMealMatches.breakfast.slice(0, 2), lunch: weekMealMatches.lunch.slice(0, 2), dinner: weekMealMatches.dinner.slice(0, 2) }
 
   const [openGroceryMonth, setOpenGroceryMonth] = useState<number | null>(null)
   const [openGroceryWeek, setOpenGroceryWeek] = useState<number | null>(null)
@@ -716,75 +735,31 @@ export default function PulseTemplate({ roadmapId, data, initialCheckins }: { ro
           <Card id="lifestyle" hidden={isHidden('lifestyle')}>
             <Eyebrow>Every day</Eyebrow>
             <SecTitle icon={<HeartPulse size={20} />}>Lifestyle guidelines</SecTitle>
-            <KVGrid items={lifestyleBullets} />
+            <KVGrid items={lifestyleBullets} showIcons />
           </Card>
         )}
 
-        {/* Diet protocol — tied to the 'nutrition' toggle, same as Almanac,
-            since Classic/PDF don't have a separate section for this. */}
-        {parsed.dietProtocol.length > 0 && (
-          <Card id="dietprotocol" hidden={isHidden('nutrition')}>
-            <Eyebrow>Nutrition</Eyebrow>
-            <SecTitle icon={<Utensils size={20} />}>Diet protocol</SecTitle>
-            <KVGrid items={parsed.dietProtocol} />
-          </Card>
-        )}
-
-        {/* Your power plates */}
-        <Card id="nutrition" hidden={isHidden('nutrition')}>
-          <Eyebrow>Building your plate</Eyebrow>
-          <SecTitle icon={<Utensils size={20} />}>Your power plates</SecTitle>
-          <div style={{ display: 'flex', gap: 8, marginTop: 16, marginBottom: 18 }}>
-            {MEAL_TYPES.map((meal) => (
-              <button key={meal} data-meal-trigger={meal} onClick={() => setActiveMeal(meal)}
-                style={{
-                  padding: '7px 16px', borderRadius: 20, cursor: 'pointer', fontSize: '0.8rem', fontWeight: 700, textTransform: 'capitalize',
-                  border: activeMeal === meal ? 'none' : `1px solid ${PULSE.border}`,
-                  background: activeMeal === meal ? PULSE.accent : 'transparent', color: activeMeal === meal ? '#fff' : PULSE.ink,
-                }}>
-                {meal}
-              </button>
-            ))}
-          </div>
-          {MEAL_TYPES.map((meal) => {
-            const plate = FOOD_PLATES[meal]
-            const recipes = mealMatches[meal]
-            return (
-              <div key={meal} data-meal-body={meal} style={{ display: meal === activeMeal ? 'block' : 'none' }}>
-                <div style={{ fontSize: '0.8rem', color: PULSE.muted, marginBottom: 14 }}>{plate.ratios}</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  {plate.columns.map((col) => (
-                    <div key={col.head}>
-                      <span style={{ fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: PULSE.accentDeep }}>{col.head}</span>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
-                        {col.items.map((item) => (
-                          <span key={item} style={{ fontSize: '0.78rem', padding: '4px 10px', borderRadius: 14, background: PULSE.accentSoft, color: PULSE.accentDeep, border: `1px solid ${PULSE.border}` }}>{item}</span>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                {recipes.length > 0 && (
-                  <div style={{ marginTop: 18, paddingTop: 14, borderTop: `1px solid ${PULSE.border}` }}>
-                    <span style={{ fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: PULSE.muted }}>Picked for {meal}</span>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
-                      {recipes.map((m) => (
-                        <div key={m.recipe.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 12px', borderRadius: 12, border: `1px solid ${PULSE.border}` }}>
-                          {m.recipe.image_url ? (
-                            <img src={m.recipe.image_url} alt={m.recipe.name} style={{ width: 42, height: 42, borderRadius: 8, objectFit: 'cover', flexShrink: 0 }} />
-                          ) : (
-                            <div style={{ width: 42, height: 42, borderRadius: 8, background: PULSE.accentSoft, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><ChefHat size={16} color={PULSE.accent} /></div>
-                          )}
-                          <div style={{ fontSize: '0.83rem', fontWeight: 600, color: PULSE.ink }}>{m.recipe.name}{m.recipe.protein_label ? ` · ${m.recipe.protein_label}` : ''}</div>
-                        </div>
-                      ))}
-                    </div>
+        {/* Power points — coach-pasted links each with a short note */}
+        {data.powerPoints.filter((pp) => pp.url).length > 0 && (
+          <Card id="nutrition" hidden={isHidden('nutrition')}>
+            <Eyebrow>Worth a look</Eyebrow>
+            <SecTitle icon={<LinkIcon size={20} />}>Your power points</SecTitle>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 16 }}>
+              {data.powerPoints.filter((pp) => pp.url).map((pp, i) => (
+                <a key={i} href={pp.url} target="_blank" rel="noopener noreferrer"
+                  style={{ display: 'flex', alignItems: 'flex-start', gap: 12, textDecoration: 'none', padding: '12px 14px', borderRadius: 14, border: `1px solid ${PULSE.border}`, background: PULSE.bg }}>
+                  <div style={{ width: 34, height: 34, borderRadius: 9, background: PULSE.accentSoft, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <LinkIcon size={16} color={PULSE.accentDeep} />
                   </div>
-                )}
-              </div>
-            )
-          })}
-        </Card>
+                  <div style={{ minWidth: 0 }}>
+                    {pp.note && <div style={{ fontSize: '0.88rem', color: PULSE.ink, lineHeight: 1.5, marginBottom: 3 }}>{renderMarkdownBold(pp.note)}</div>}
+                    <div style={{ fontSize: '0.78rem', color: PULSE.accent, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pp.url}</div>
+                  </div>
+                </a>
+              ))}
+            </div>
+          </Card>
+        )}
 
         {/* Superfood of the week */}
         <Card id="superfood" hidden={isHidden('superfood')}>

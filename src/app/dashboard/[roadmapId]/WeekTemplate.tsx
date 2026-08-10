@@ -1,31 +1,24 @@
 'use client'
 
-// An alternate, read-only patient-facing presentation of the exact same
-// GuideData the Classic template (DashboardClient.tsx) uses — same real
-// data, different visual language (inspired by a reference design the
-// coach liked: warm paper/gold/dusk color bands, Fraunces/Work
-// Sans/IBM Plex Mono typography, scroll-reveal). A coach always edits
+// A fifth, single-week patient-facing presentation of the exact same
+// GuideData every other template uses — same real data, same visual
+// language as Almanac (warm paper/gold/wine, Fraunces/Work Sans/IBM Plex
+// Mono), but built for a 1-week plan: "Your roadmap" shows that one week
+// directly (no month/week tabs), and it adds a "Daily Health Check-in"
+// section — a habit checklist built from this patient's REAL supplements
+// and lifestyle guidelines (never generic placeholder items), plus a
+// water/energy/mood log per real calendar date. A coach always edits
 // content in the Classic editor regardless of which template is picked;
 // this component never runs in editable mode.
-//
-// The reference design's centerpiece was a literal minute-by-minute daily
-// schedule wheel — this app doesn't collect timestamped schedules, and
-// inventing one would violate the "never fabricate" rule that's shaped
-// every other feature in this app. In its place: a tree that grows through
-// real stages as the patient's actual tracked adherence (goalsDone /
-// totalActionsInPlan, the same number "Track your progress" already shows)
-// increases — a meaningful visual grounded in real data instead.
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import {
   HeartPulse, Utensils, Pill, Phone, CalendarCheck, HelpCircle, ChefHat, MapPin, ChevronDown, ChevronRight, X, Download,
   CheckCircle2, Circle, Sparkles, Star, ShoppingCart, Video, MessageCircle, Activity, Stethoscope, Users, Target, TrendingUp,
-  Moon, Droplet, Brain, Sun, Footprints, Smartphone, Link as LinkIcon,
-  type LucideIcon,
+  Droplet, Zap, Moon, Brain, Sun, Footprints, Smartphone, Link as LinkIcon, type LucideIcon,
 } from 'lucide-react'
 import type { GuideData, DayMealSlot } from '@/lib/pdf/ClientGuideDocument'
 import { parseNutritionistGuidelines } from '@/lib/pdf/parseNutritionistGuidelines'
 import { selectRecipesForPatient } from '@/lib/pdf/matchRecipes'
-import { reshapeRoadmapIntoMonths, type WeeklyPlan } from '@/lib/pdf/reshapeRoadmap'
 import { getSlotRecipes } from '@/lib/pdf/weekRecipes'
 import { renderMarkdownBold } from '@/lib/renderMarkdownBold'
 import { splitRecipeLines } from '@/lib/recipeText'
@@ -38,7 +31,6 @@ const DAY_MEAL_SLOTS: DayMealSlot[] = ['breakfast', 'lunch', 'dinner', 'snack', 
 const SLOT_LABELS: Record<DayMealSlot, string> = { breakfast: 'Breakfast', lunch: 'Lunch', dinner: 'Dinner', snack: 'Snacks', dessert: 'Desserts' }
 const DAY_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 
-// Same icon set as the Classic editor's care-service picker (src/app/dashboard/[roadmapId]/DashboardClient.tsx)
 const CARE_ICON_MAP: Record<string, LucideIcon> = {
   coaching: Star, video: Video, phone: Phone, chat: MessageCircle, nutrition: Utensils,
   labs: Activity, wellness: HeartPulse, clinical: Stethoscope, group: Users, followup: CalendarCheck,
@@ -58,11 +50,9 @@ function todayISO(): string {
   return new Date().toISOString().slice(0, 10)
 }
 
-// Roadmaps don't store an explicit start date, so a week's "Sunday" is
-// anchored to the real calendar Sunday of the week the roadmap was created
-// in — Week 2's Monday is then just +7 days +1 from that same anchor. This
-// is what makes each DAY_LABELS tab (and its checkbox) a genuine, distinct
-// calendar date instead of every day silently sharing today's checkin.
+// Same real-calendar-date anchoring as every other template — a week's
+// "Sunday" is the actual calendar Sunday of the week the roadmap was
+// created in, so each day tab is a genuine, distinct date.
 function weekSundayISO(createdAtISO: string): string {
   const dateOnly = createdAtISO.slice(0, 10)
   const d = new Date(`${dateOnly}T00:00:00Z`)
@@ -81,18 +71,11 @@ function parseBullets(text: string): string[] {
     .filter(Boolean)
 }
 
-// A guideline bullet is often "Category: detail" (e.g. "Fasting window: 12-14
-// hour overnight fast") — splits it into a key/value chip when that shape is
-// present, otherwise just shows the whole line as the value.
 function splitKV(bullet: string): { k: string | null; v: string } {
   const m = bullet.match(/^([^:]{2,30}):\s*(.+)$/)
   return m ? { k: m[1].trim(), v: m[2].trim() } : { k: null, v: bullet }
 }
 
-// Purely decorative categorization (never changes what the guideline says,
-// just picks a matching icon by keyword) — first match wins, so order goes
-// roughly specific-to-generic. A guideline that matches nothing still shows
-// fine with the HeartPulse fallback, same icon the section header already uses.
 const LIFESTYLE_ICON_RULES: [RegExp, LucideIcon][] = [
   [/\b(sleep|bedtime|wind[- ]down|rest)\b/i, Moon],
   [/\b(water|hydrat|fluid)\b/i, Droplet],
@@ -119,6 +102,7 @@ const PALETTE = {
 const FONT_LINK = 'https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;0,9..144,600;1,9..144,500&family=Work+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap'
 
 const TOC_ITEMS: { label: string; id: string }[] = [
+  { label: 'Daily health check-in', id: 'checkin' },
   { label: 'Founder’s note', id: 'founder' },
   { label: 'Meet your coach', id: 'coach' },
   { label: 'Your care team', id: 'careteam' },
@@ -181,25 +165,11 @@ function KVGrid({ items, dark, showIcons }: { items: string[]; dark?: boolean; s
   )
 }
 
-// Text-only staging for the caption under the mascot ("First sprout",
-// "In full bloom" etc.) — kept separate from the visual, which now grows
-// continuously with real adherence (pct, 0-100) rather than snapping
-// between discrete stages.
 function stageForPct(pct: number): number {
   return pct >= 85 ? 4 : pct >= 60 ? 3 : pct >= 35 ? 2 : pct >= 10 ? 1 : 0
 }
 const GROWTH_LABELS = ['Just planted', 'First sprout', 'Taking root', 'Growing strong', 'In full bloom']
 
-// A companion mascot (bobs continuously, cheers when a goal is freshly
-// checked) beside a plant that grows continuously with real tracked
-// adherence (pct, 0-100 — the same number "Track your progress" shows) —
-// replaces the reference design's fabricated schedule wheel with something
-// grounded in real data and alive to interact with. Stem/leaves/flower
-// reveal via stroke-dashoffset and opacity/transform transitions driven
-// directly by pct, so the SAME markup works unanimated on first paint,
-// live-animated in the browser, and re-driven by plain JS after every
-// offline check-in in the downloaded file — no discrete stages to
-// pre-render, just one continuous value the transitions follow.
 const STEM_LEN = 70
 function GrowthMascot({ pct, cheering }: { pct: number; cheering: boolean }) {
   const clamped = Math.max(0, Math.min(100, pct))
@@ -239,9 +209,6 @@ function GrowthMascot({ pct, cheering }: { pct: number; cheering: boolean }) {
   )
 }
 
-// Same "just did something good" pop as the mascot cheer, reused for the
-// streak flame in Track Your Progress — lights up (gray to gold) once the
-// streak is real, no fabricated fire before there's an actual streak.
 function StreakFlame({ lit, pop }: { lit: boolean; pop: boolean }) {
   return (
     <svg data-streak-flame width="14" height="14" viewBox="0 0 24 24" style={{ animation: pop ? 'clpFlamePop 0.5s ease' : undefined }}>
@@ -251,178 +218,77 @@ function StreakFlame({ lit, pop }: { lit: boolean; pop: boolean }) {
   )
 }
 
-// Smooth curve through arbitrary points (Catmull-Rom -> cubic Bezier) — lets
-// the roadmap trail below wiggle nicely for any month count, not just 3.
-function buildTrailPath(points: { x: number; y: number }[]): string {
-  if (points.length < 2) return ''
-  let d = `M ${points[0].x} ${points[0].y}`
-  for (let i = 0; i < points.length - 1; i++) {
-    const p0 = points[i === 0 ? i : i - 1]
-    const p1 = points[i]
-    const p2 = points[i + 1]
-    const p3 = points[i + 2 < points.length ? i + 2 : i + 1]
-    const cp1x = p1.x + (p2.x - p0.x) / 6
-    const cp1y = p1.y + (p2.y - p0.y) / 6
-    const cp2x = p2.x - (p3.x - p1.x) / 6
-    const cp2y = p2.y - (p3.y - p1.y) / 6
-    d += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p2.x} ${p2.y}`
-  }
-  return d
-}
-
-// A winding trail above "Your roadmap"'s month pills — one flag per month,
-// filled in as far as the patient's real average completion across months
-// (the same pct "Track your progress" already computes, never a fabricated
-// number). Clicking a flag opens that month, same as clicking its pill —
-// it shares the exact `data-month-trigger` hook the pill row already uses,
-// so the shared offline-export script wires it up for free.
-function RoadmapTrail({ monthStats, onSelect }: { monthStats: { monthNumber: number; monthLabel: string; pct: number }[]; onSelect: (n: number) => void }) {
-  const n = monthStats.length
-  const pathRef = useRef<SVGPathElement | null>(null)
-  const [pathLen, setPathLen] = useState(400)
-
-  const points = useMemo(
-    () => monthStats.map((_, i) => ({
-      x: n > 1 ? 30 + (i * (290 - 30)) / (n - 1) : 160,
-      y: n > 1 ? 70 + 30 * Math.cos((Math.PI * i) / (n - 1)) : 70,
-    })),
-    [monthStats, n]
-  )
-  const d = useMemo(() => buildTrailPath(points), [points])
-
-  useEffect(() => {
-    if (pathRef.current) setPathLen(pathRef.current.getTotalLength())
-  }, [d])
-
-  if (n < 2) return null
-
-  const avgPct = monthStats.reduce((s, m) => s + m.pct, 0) / (n * 100)
-  const firstIncompleteIdx = monthStats.findIndex((m) => m.pct < 100)
-  const activeIdx = firstIncompleteIdx === -1 ? n - 1 : firstIncompleteIdx
-
-  return (
-    <svg data-trail-svg width="100%" height="130" viewBox="0 0 320 140" style={{ marginTop: 8, display: 'block' }}>
-      <path data-trail-bg d={d} stroke="rgba(243,236,218,0.25)" strokeWidth={4} fill="none" strokeLinecap="round" />
-      <path ref={pathRef} data-trail-fill d={d} stroke={PALETTE.gold1} strokeWidth={4} fill="none" strokeLinecap="round"
-        strokeDasharray={pathLen}
-        style={{ strokeDashoffset: pathLen - pathLen * avgPct, transition: 'stroke-dashoffset 0.8s cubic-bezier(.2,.8,.3,1)' }} />
-      {points.map((p, i) => {
-        const m = monthStats[i]
-        const done = m.pct >= 100
-        const isActive = i === activeIdx
-        const fill = done ? PALETTE.gold1 : isActive ? PALETTE.berry : 'rgba(243,236,218,0.10)'
-        const textColor = done ? PALETTE.ink : isActive ? PALETTE.cream : 'rgba(243,236,218,0.6)'
-        return (
-          <g key={m.monthNumber} data-month-trigger={m.monthNumber} data-trail-flag={m.monthNumber}
-            data-done-color={PALETTE.gold1} data-active-color={PALETTE.berry} data-upcoming-color="rgba(243,236,218,0.10)"
-            onClick={() => onSelect(m.monthNumber)} transform={`translate(${p.x},${p.y})`}
-            style={{ cursor: 'pointer' }}>
-            <circle r={16} fill={fill} stroke="rgba(243,236,218,0.3)" strokeWidth={1.5} style={{ transition: 'fill 0.3s ease' }} />
-            <text x={0} y={4} textAnchor="middle" fontSize={11} fontWeight={700} fill={textColor} style={{ pointerEvents: 'none' }}>{i + 1}</text>
-          </g>
-        )
-      })}
-    </svg>
-  )
-}
-
-export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { roadmapId: string; data: GuideData; initialCheckins: Checkin[] }) {
+export default function WeekTemplate({ roadmapId, data, initialCheckins }: { roadmapId: string; data: GuideData; initialCheckins: Checkin[] }) {
   const firstName = data.patient.full_name?.split(' ')[0] || 'there'
   const coachFirst = data.coach?.full_name?.split(' ')[0] || 'your coach'
-  // Always read-only — a coach's hide/show choice (made in the Classic
-  // editor, the only place editing happens) is just a saved fact here.
   const hiddenStyle = (id: string): CSSProperties => ((data.hiddenSections ?? []).includes(id) ? { display: 'none' } : {})
   const isHidden = (id: string) => (data.hiddenSections ?? []).includes(id)
   const parsed = useMemo(() => parseNutritionistGuidelines(data.roadmap.nutritionist_guidelines), [data.roadmap.nutritionist_guidelines])
   const lifestyleBullets = useMemo(() => parseBullets(data.roadmap.lifestyle_guidelines), [data.roadmap.lifestyle_guidelines])
 
-  const months = useMemo(() => reshapeRoadmapIntoMonths(data.roadmap.weekly_schedule).filter((m) => m.planned), [data.roadmap.weekly_schedule])
+  // This template only ever shows ONE week — the first one the plan has —
+  // no month/week tabs, "Your roadmap" goes straight to its 7 days.
+  const week = useMemo(() => {
+    const weeks = [...(data.roadmap.weekly_schedule ?? [])].sort((a, b) => a.week_number - b.week_number)
+    return weeks[0] ?? null
+  }, [data.roadmap.weekly_schedule])
 
-  // Same real, tappable goal check-off as Classic — striking a goal here
-  // persists to the same checkins table, so "Track your progress" and the
-  // tree above update immediately, live, not just on the next page load.
   const [checkins, setCheckins] = useState<Checkin[]>(initialCheckins)
 
-  // Matched once at the same limit (5) Classic uses, so both templates rank
-  // recipes identically — this is the real per-week curated data (a coach's
-  // explicit picks win; otherwise the same auto-match Classic falls back to)
-  // via the shared helper in src/lib/pdf/weekRecipes.ts, not a separate
-  // flat/generic list.
   const weekMealMatches = useMemo(() => selectRecipesForPatient(
     { primaryConcern: data.patient.primary_concern || '', dietProtocol: parsed.dietProtocol },
     data.recipeBank, 5
   ), [data.patient.primary_concern, parsed.dietProtocol, data.recipeBank])
 
-  const [openMonth, setOpenMonth] = useState<number | null>(null)
-  const [openWeek, setOpenWeek] = useState<number | null>(null)
   const [openDay, setOpenDay] = useState<string | null>(null)
   const [openSlot, setOpenSlot] = useState<string | null>(null)
   const [openRecipeId, setOpenRecipeId] = useState<string | null>(null)
   const [tocOpen, setTocOpen] = useState(false)
 
-  // Same real check-in-derived stats "Track your progress" shows in
-  // Classic (src/app/dashboard/[roadmapId]/DashboardClient.tsx) — never a
-  // placeholder number.
   const today = todayISO()
+
+  const checkedSet = useMemo(() => new Set(checkins.map((c) => `${c.week_number}:${c.action_index}:${c.checkin_date}`)), [checkins])
+
+  // Real, week-scoped adherence — same "no real match beats a fabricated
+  // one" derivation every other template uses, just against one week
+  // instead of a month roll-up.
   const progress = useMemo(() => {
     const dateSet = new Set(checkins.map((c) => c.checkin_date))
     let streak = 0
     let cursor = dateSet.has(today) ? today : shiftDateISO(today, -1)
     while (dateSet.has(cursor)) { streak++; cursor = shiftDateISO(cursor, -1) }
-    const doneKeys = new Set(checkins.map((c) => `${c.week_number}:${c.action_index}`))
-    // A week with a real day-by-day breakdown (WeeklyPlan.days) tracks
-    // completion per real calendar day instead of "done on any day counts"
-    // — each of the 7 days is a genuinely different task now, so a checkin
-    // only counts if it actually falls on that day's own real date. A
-    // legacy week (no `days`) keeps the old date-agnostic counting exactly
-    // as before, so older roadmaps' numbers never change underneath them.
-    const weekStats = (w: WeeklyPlan) => {
-      if (w.days && w.days.length > 0) {
-        const validDates = new Set(DAY_LABELS.map((_, i) => dateForWeekDay(data.createdAt, w.week_number, i)))
-        const perDay = w.days[0]?.length ?? w.actions?.length ?? 0
-        const total = w.days.reduce((n, d) => n + d.length, 0)
-        const done = checkins.filter((c) => c.week_number === w.week_number && c.action_index < perDay && validDates.has(c.checkin_date)).length
-        return { total, done }
-      }
-      const total = w.actions?.length ?? 0
-      const done = (w.actions ?? []).filter((_, i) => doneKeys.has(`${w.week_number}:${i}`)).length
-      return { total, done }
+    if (!week) return { streak, totalDaysLogged: dateSet.size, totalActions: 0, doneActions: 0, pct: 0 }
+    let total = 0
+    let done = 0
+    if (week.days && week.days.length > 0) {
+      const validDates = new Set(DAY_LABELS.map((_, i) => dateForWeekDay(data.createdAt, week.week_number, i)))
+      const perDay = week.days[0]?.length ?? week.actions?.length ?? 0
+      total = week.days.reduce((n, d) => n + d.length, 0)
+      done = checkins.filter((c) => c.week_number === week.week_number && c.action_index < perDay && validDates.has(c.checkin_date)).length
+    } else {
+      total = week.actions?.length ?? 0
+      const doneKeys = new Set(checkins.map((c) => `${c.week_number}:${c.action_index}`))
+      done = (week.actions ?? []).filter((_, i) => doneKeys.has(`${week.week_number}:${i}`)).length
     }
-    const monthStats = months.map((m) => {
-      const stats = m.weeks.map(weekStats)
-      const total = stats.reduce((n, s) => n + s.total, 0)
-      const done = stats.reduce((n, s) => n + s.done, 0)
-      return { monthNumber: m.monthNumber, monthLabel: m.monthLabel, doneActions: done, totalActions: total, pct: total > 0 ? Math.round((done / total) * 100) : 0 }
-    })
-    const bestMonth = monthStats.reduce<typeof monthStats[number] | null>((best, m) => (m.doneActions > 0 && m.pct > (best?.pct ?? -1) ? m : best), null)
-    return { streak, totalDaysLogged: dateSet.size, monthStats, bestMonth }
-  }, [checkins, months, today, data.createdAt])
+    return { streak, totalDaysLogged: dateSet.size, totalActions: total, doneActions: done, pct: total > 0 ? Math.round((done / total) * 100) : 0 }
+  }, [checkins, week, today, data.createdAt])
 
-  // Derived from the exact same per-month totals "Track your progress"
-  // shows (never recomputed separately) — the mascot/plant's growth stage
-  // and the "goals accomplished" stat can never silently disagree with it.
-  const totalActionsInPlan = progress.monthStats.reduce((n, m) => n + m.totalActions, 0)
-  const goalsDone = progress.monthStats.reduce((n, m) => n + m.doneActions, 0)
-  const adherencePct = totalActionsInPlan > 0 ? Math.round((goalsDone / totalActionsInPlan) * 100) : 0
+  const totalActionsInPlan = progress.totalActions
+  const goalsDone = progress.doneActions
+  const adherencePct = progress.pct
 
-  const checkedSet = useMemo(() => new Set(checkins.map((c) => `${c.week_number}:${c.action_index}:${c.checkin_date}`)), [checkins])
-
-  // Brief mascot cheer + flame pop when a goal is freshly checked (not on
-  // uncheck) — purely a feel-good pulse, never fabricates progress; the
-  // underlying pct/streak numbers driving the mascot/plant/flame are the
-  // exact same real ones "Track your progress" shows.
   const [cheering, setCheering] = useState(false)
   const cheerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Same optimistic-update-with-revert pattern as Classic's toggle() —
-  // persists to the same /checkins endpoint, so ticking a goal here shows
-  // up identically if the coach or patient later opens the Classic template.
-  // `date` is the specific day-tab's own real calendar date (see
-  // dateForWeekDay above), not always today — each day tracks independently.
+  // Shared by both the real weekly goals AND the Daily Health Check-in
+  // checklist below (which uses the sentinel week_number 0 — real weeks
+  // always start at 1, so 0 can never collide with a real week's goals,
+  // and this reuses the exact same checkins table/endpoint with zero
+  // schema changes).
   async function toggleGoal(weekNumber: number, actionIndex: number, date: string) {
     const key = `${weekNumber}:${actionIndex}:${date}`
     const wasChecked = checkedSet.has(key)
-    if (!wasChecked) {
+    if (!wasChecked && weekNumber !== 0) {
       setCheering(true)
       if (cheerTimeoutRef.current) clearTimeout(cheerTimeoutRef.current)
       cheerTimeoutRef.current = setTimeout(() => setCheering(false), 700)
@@ -444,16 +310,51 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
     }
   }
 
-  // Shopping list — same per-week, recipe-derived, categorized ingredients
-  // as Classic (src/lib/groceryList.ts), expanding inline instead of a popup.
-  const [openGroceryMonth, setOpenGroceryMonth] = useState<number | null>(null)
-  const [openGroceryWeek, setOpenGroceryWeek] = useState<number | null>(null)
-  const [aiGroceryCache, setAiGroceryCache] = useState<Record<number, GroceryCategory[]>>({})
+  // Daily Health Check-in — checklist built from this patient's REAL
+  // supplements (confirmed by the coach) and a few real lifestyle-guideline
+  // lines, never a generic placeholder list. Persists like every other
+  // goal: real checkins table, week_number 0 sentinel, so the coach can see
+  // exactly which days a patient actually did each one.
+  const dailyChecklist = useMemo(() => {
+    const items: string[] = []
+    data.confirmedSupplements.slice(0, 4).forEach((s) => {
+      items.push(`Take ${s.name}${s.timing ? ` — ${s.timing}` : ''}`)
+    })
+    lifestyleBullets.slice(0, 4).forEach((b) => {
+      const { v } = splitKV(b)
+      items.push(v.length > 80 ? v.slice(0, 77) + '…' : v)
+    })
+    return items.slice(0, 8)
+  }, [data.confirmedSupplements, lifestyleBullets])
 
-  // "Bought" checklist — same personal, never-synced-to-the-server
-  // localStorage checklist as Classic, under the SAME storage key
-  // (clp-grocery-${roadmapId}) and the same item-key format, so checking
-  // something off here shows checked in Classic too, and vice versa.
+  const [checkinDate, setCheckinDate] = useState(today)
+
+  // Water/energy/mood are small per-day numbers/text, not boolean
+  // check-offs — stored on the roadmap row itself (guide_overrides.daily_metrics)
+  // via a dedicated endpoint, same safe read-merge-write pattern the coach's
+  // own "Save changes" already uses on that column.
+  const [metricsCache, setMetricsCache] = useState<Record<string, { water?: number; energy?: number; mood?: string }>>(data.dailyMetrics || {})
+  const todayMetrics = metricsCache[checkinDate] || {}
+  const [moodDraft, setMoodDraft] = useState(todayMetrics.mood || '')
+  useEffect(() => { setMoodDraft(metricsCache[checkinDate]?.mood || '') }, [checkinDate, metricsCache])
+
+  async function saveMetric(field: 'water' | 'energy' | 'mood', value: number | string) {
+    setMetricsCache((prev) => ({ ...prev, [checkinDate]: { ...prev[checkinDate], [field]: value } }))
+    try {
+      await fetch(`/api/roadmaps/${roadmapId}/daily-metrics`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date: checkinDate, [field]: value }),
+      })
+    } catch { /* optimistic UI already updated; best-effort sync */ }
+  }
+  function adjustWater(delta: number) {
+    saveMetric('water', Math.max(0, (metricsCache[checkinDate]?.water ?? 0) + delta))
+  }
+  function adjustEnergy(delta: number) {
+    saveMetric('energy', Math.max(0, Math.min(10, (metricsCache[checkinDate]?.energy ?? 0) + delta)))
+  }
+
+  const [aiGroceryCache, setAiGroceryCache] = useState<Record<number, GroceryCategory[]>>({})
   const [boughtItems, setBoughtItems] = useState<Set<string>>(new Set())
   const groceryStorageKey = `clp-grocery-${roadmapId}`
   useEffect(() => {
@@ -472,16 +373,11 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
     })
   }
 
-  // The regex cleanup in groceryList.ts is instant but rule-based — an AI
-  // pass catches what fixed rules can't (spelling variants, oddly-worded
-  // duplicates, better categorization, and instruction text that leaked
-  // into the ingredients field from two-column source PDFs). Fetched lazily
-  // per week (only once, cached) so opening a week's list is never blocked
-  // on it — the regex-based list shows immediately and this quietly
-  // replaces it when ready, or stays as-is if the call fails.
   useEffect(() => {
-    if (openGroceryWeek == null || aiGroceryCache[openGroceryWeek]) return
-    const weekRecipes = getSlotRecipes(openGroceryWeek, DAY_MEAL_SLOTS, data.weeklyManualRecipes, data.manualRecipes, weekMealMatches, data.recipeBank, 'Picked for your plan.').flatMap((s) => s.matches).map((mm) => mm.recipe)
+    if (!week) return
+    const wn = week.week_number
+    if (aiGroceryCache[wn]) return
+    const weekRecipes = getSlotRecipes(wn, DAY_MEAL_SLOTS, data.weeklyManualRecipes, data.manualRecipes, weekMealMatches, data.recipeBank, 'Picked for your plan.').flatMap((s) => s.matches).map((mm) => mm.recipe)
     const candidateItems = buildGroceryList(weekRecipes).flatMap((cat) => cat.items.map((name) => ({ name, category: cat.head })))
     if (candidateItems.length === 0) return
     let cancelled = false
@@ -489,23 +385,17 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => {
         if (cancelled || !j || !Array.isArray(j.categories) || j.categories.length === 0) return
-        setAiGroceryCache((prev) => ({ ...prev, [openGroceryWeek]: j.categories }))
+        setAiGroceryCache((prev) => ({ ...prev, [wn]: j.categories }))
       })
       .catch(() => { /* keep the regex-based list on failure */ })
     return () => { cancelled = true }
-  }, [openGroceryWeek, aiGroceryCache, data.weeklyManualRecipes, data.manualRecipes, weekMealMatches, data.recipeBank])
+  }, [week, aiGroceryCache, data.weeklyManualRecipes, data.manualRecipes, weekMealMatches, data.recipeBank])
 
-  // What's included in your care — same coach-entered tiles as Classic.
   const [openService, setOpenService] = useState<number | null>(null)
-
   const [openFaq, setOpenFaq] = useState<number | null>(null)
   const [founderOpen, setFounderOpen] = useState(false)
   const [coachOpen, setCoachOpen] = useState(false)
 
-  // Same "no real match beats a fabricated one" tag-matched photo as Classic
-  // — a plain icon tile shows instead if nothing in the picture bank fits.
-  // Both pulls share one `used` set so the same picture-bank image can't get
-  // matched into both "Superfood" and "Your why" on the same page.
   const { superfoodImage, whyImage } = useMemo(() => {
     const used = new Set<string>()
     const superfood = matchGuideImageDistinct('superfood nutrition weekly pick seasonal', data.imageBank, used)
@@ -513,27 +403,16 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
     return { superfoodImage: superfood, whyImage: why }
   }, [data.imageBank])
 
-  // Downloads exactly what's rendered — every collapsible block in this
-  // template is always mounted (just `display:none` when closed, never
-  // conditionally unmounted) specifically so a DOM clone captures the whole
-  // plan regardless of what happened to be open at download time, then a
-  // shared vanilla-JS "offline brain" (src/lib/pdf/inlineExportScript.ts,
-  // same one Pulse uses) makes month/week/recipe/grocery/goal toggles work
-  // with zero network calls once opened as a local file.
   function downloadDashboard() {
-    const root = document.getElementById('almanac-export-root')
+    const root = document.getElementById('week-export-root')
     if (!root) return
     const clone = root.cloneNode(true) as HTMLElement
     clone.querySelectorAll('[data-no-export]').forEach((el) => el.remove())
     clone.querySelectorAll('[data-hidden-section]').forEach((el) => el.remove())
-    clone.querySelectorAll('[data-month-trigger]').forEach((el) => el.setAttribute('onclick', `clpToggleMonth('${el.getAttribute('data-month-trigger')}')`))
-    clone.querySelectorAll('[data-week-trigger]').forEach((el) => el.setAttribute('onclick', `clpToggleWeek('${el.getAttribute('data-week-trigger')}')`))
     clone.querySelectorAll('[data-day-trigger]').forEach((el) => el.setAttribute('onclick', `clpToggleDay('${el.getAttribute('data-day-trigger')}', this)`))
     clone.querySelectorAll('[data-slot-trigger]').forEach((el) => el.setAttribute('onclick', `clpOpenSlot('${el.getAttribute('data-slot-trigger')}')`))
     clone.querySelectorAll('[data-slot-back]').forEach((el) => el.setAttribute('onclick', 'clpCloseSlot()'))
     clone.querySelectorAll('[data-recipe-trigger]').forEach((el) => el.setAttribute('onclick', `clpToggleRecipe('${el.getAttribute('data-recipe-trigger')}')`))
-    clone.querySelectorAll('[data-grocery-month-trigger]').forEach((el) => el.setAttribute('onclick', `clpToggleGroceryMonth('${el.getAttribute('data-grocery-month-trigger')}')`))
-    clone.querySelectorAll('[data-grocery-week-trigger]').forEach((el) => el.setAttribute('onclick', `clpToggleGroceryWeek('${el.getAttribute('data-grocery-week-trigger')}')`))
     clone.querySelectorAll('[data-meal-trigger]').forEach((el) => el.setAttribute('onclick', `clpSetMealTab('${el.getAttribute('data-meal-trigger')}')`))
     clone.querySelectorAll('[data-faq-trigger]').forEach((el) => el.setAttribute('onclick', `clpToggleFaq('${el.getAttribute('data-faq-trigger')}')`))
     clone.querySelectorAll('[data-care-trigger]').forEach((el) => el.setAttribute('onclick', `clpToggleCare('${el.getAttribute('data-care-trigger')}')`))
@@ -552,14 +431,25 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
       const key = (el.getAttribute('data-grocery-item') || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'")
       el.setAttribute('onclick', `toggleGroceryItemExport('${key}', this)`)
     })
+    clone.querySelectorAll('[data-water-inc]').forEach((el) => el.setAttribute('onclick', 'clpAdjustMetric(\'water\', 1)'))
+    clone.querySelectorAll('[data-water-dec]').forEach((el) => el.setAttribute('onclick', 'clpAdjustMetric(\'water\', -1)'))
+    clone.querySelectorAll('[data-energy-inc]').forEach((el) => el.setAttribute('onclick', 'clpAdjustMetric(\'energy\', 1)'))
+    clone.querySelectorAll('[data-energy-dec]').forEach((el) => el.setAttribute('onclick', 'clpAdjustMetric(\'energy\', -1)'))
+    clone.querySelectorAll('[data-checkin-date]').forEach((el) => el.setAttribute('onchange', 'clpSetCheckinDate(this.value)'))
+    clone.querySelectorAll('[data-mood-input]').forEach((el) => el.setAttribute('oninput', 'clpSaveMood(this.value)'))
     clone.querySelectorAll('[style*="position: sticky"]').forEach((el) => ((el as HTMLElement).style.position = 'static'))
 
-    const monthsData = months.map((m) => ({ monthNumber: m.monthNumber, monthLabel: m.monthLabel, weeks: m.weeks.map((w) => ({ week_number: w.week_number, totalActions: w.days?.length ? w.days.reduce((n, d) => n + d.length, 0) : (w.actions?.length ?? 0) })) }))
+    const monthsData = week ? [{
+      monthNumber: 1, monthLabel: 'This week',
+      weeks: [{ week_number: week.week_number, totalActions: week.days?.length ? week.days.reduce((n, d) => n + d.length, 0) : (week.actions?.length ?? 0) }],
+    }] : []
     const script = buildInlineExportScript({
       roadmapId, monthsData,
       colors: { ink: PALETTE.ink, inkSoft: PALETTE.ink, muted: 'rgba(43,42,34,0.55)', accent: PALETTE.berry, accentSoft: 'rgba(122,51,70,0.08)', border: PALETTE.line, onAccent: '#fff' },
     })
-    const title = (data.patient?.full_name || 'Your') + "'s Plan, Clinic Living Plus"
+    const dailyMetricsJson = JSON.stringify(metricsCache).replace(/</g, '\\u003c')
+    const weekMetaJson = JSON.stringify({ weekNumber: week?.week_number ?? 1, checklistCount: dailyChecklist.length, todayISO: today }).replace(/</g, '\\u003c')
+    const title = (data.patient?.full_name || 'Your') + "'s Week Plan, Clinic Living Plus"
     const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -571,6 +461,40 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
 <style>body{margin:0;}</style>
 </head>
 <body>${clone.outerHTML}
+<script>
+var CLP_DAILY_METRICS_KEY = 'clp-daily-metrics-${roadmapId}';
+var CLP_WEEK_META = ${weekMetaJson};
+var CLP_CHECKIN_DATE = CLP_WEEK_META.todayISO;
+function clpGetDailyMetrics(){ try { return JSON.parse(localStorage.getItem(CLP_DAILY_METRICS_KEY) || 'null') || ${dailyMetricsJson}; } catch(e){ return ${dailyMetricsJson}; } }
+function clpSetDailyMetrics(m){ try { localStorage.setItem(CLP_DAILY_METRICS_KEY, JSON.stringify(m)); } catch(e){} }
+function clpRenderMetrics(){
+  var all = clpGetDailyMetrics();
+  var m = all[CLP_CHECKIN_DATE] || {};
+  var w = document.querySelector('[data-water-value]'); if (w) w.textContent = m.water || 0;
+  var e = document.querySelector('[data-energy-value]'); if (e) e.textContent = m.energy || 0;
+  var mood = document.querySelector('[data-mood-input]'); if (mood) mood.value = m.mood || '';
+}
+function clpAdjustMetric(field, delta){
+  var all = clpGetDailyMetrics();
+  var m = all[CLP_CHECKIN_DATE] || {};
+  var next = (m[field] || 0) + delta;
+  if (field === 'water') next = Math.max(0, next);
+  if (field === 'energy') next = Math.max(0, Math.min(10, next));
+  m[field] = next;
+  all[CLP_CHECKIN_DATE] = m;
+  clpSetDailyMetrics(all);
+  clpRenderMetrics();
+}
+function clpSaveMood(value){
+  var all = clpGetDailyMetrics();
+  var m = all[CLP_CHECKIN_DATE] || {};
+  m.mood = value;
+  all[CLP_CHECKIN_DATE] = m;
+  clpSetDailyMetrics(all);
+}
+function clpSetCheckinDate(value){ CLP_CHECKIN_DATE = value; clpRenderMetrics(); }
+clpRenderMetrics();
+</script>
 <script>${script}</script>
 </body>
 </html>`
@@ -578,7 +502,7 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `${(data.patient?.full_name || 'client').replace(/\s+/g, '-')}-plan.html`
+    a.download = `${(data.patient?.full_name || 'client').replace(/\s+/g, '-')}-week-plan.html`
     document.body.appendChild(a)
     a.click()
     a.remove()
@@ -598,7 +522,7 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
   }, [])
 
   return (
-    <div id="almanac-export-root" style={{ background: PALETTE.paper1, minHeight: '100vh', fontFamily: "'Work Sans', sans-serif", color: PALETTE.ink, WebkitFontSmoothing: 'antialiased' }}>
+    <div id="week-export-root" style={{ background: PALETTE.paper1, minHeight: '100vh', fontFamily: "'Work Sans', sans-serif", color: PALETTE.ink, WebkitFontSmoothing: 'antialiased' }}>
       <link rel="preconnect" href="https://fonts.googleapis.com" />
       <link href={FONT_LINK} rel="stylesheet" />
       <a href={`/roadmaps/${roadmapId}/edit`} data-no-export style={{ display: 'none' }} />
@@ -609,9 +533,6 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
         @media (prefers-reduced-motion: reduce) { [data-mascot-idle], [data-streak-flame] { animation: none !important; } }
       `}</style>
 
-      {/* Jump-to-section — a single dropdown rather than a row of links, so
-          it never overflows or shows a scrollbar regardless of section
-          count. Restored offline via data-toc-trigger/data-toc-panel. */}
       <div style={{ position: 'sticky', top: 0, zIndex: 30, background: 'rgba(247,239,224,0.92)', backdropFilter: 'blur(6px)', borderBottom: `1px solid ${PALETTE.line}`, padding: '10px 1.5rem' }}>
         <div style={{ maxWidth: 920, margin: '0 auto', position: 'relative' }}>
           <button data-toc-trigger onClick={() => setTocOpen((v) => !v)}
@@ -633,9 +554,9 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
       <section style={{ padding: '5rem 1.5rem 3rem', textAlign: 'center' }}>
         <div style={{ maxWidth: 920, margin: '0 auto' }}>
           <div style={{ width: 48, height: 48, borderRadius: 24, background: PALETTE.berry, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', fontWeight: 700, fontFamily: "'IBM Plex Mono', monospace", fontSize: 13 }}>CLP</div>
-          <Eyebrow>Clinic Living Plus</Eyebrow>
+          <Eyebrow>Clinic Living Plus · One week</Eyebrow>
           <h1 style={{ fontFamily: "'Fraunces', serif", fontWeight: 500, fontSize: 'clamp(2.2rem,6vw,3.6rem)', lineHeight: 1.05, letterSpacing: '-0.01em', margin: 0 }}>
-            Hi {firstName},<br />here&apos;s your plan
+            Hi {firstName},<br />here&apos;s your week
           </h1>
           <div style={{ marginTop: '1.1rem', fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.85rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: PALETTE.berry }}>{data.goalLabel}</div>
 
@@ -643,14 +564,75 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
             <GrowthMascot pct={adherencePct} cheering={cheering} />
           </div>
           <div data-growth-caption style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.7rem', letterSpacing: '0.08em', textTransform: 'uppercase', opacity: 0.6 }}>
-            {totalActionsInPlan > 0 ? <>{GROWTH_LABELS[stageForPct(adherencePct)]} · <span data-goals-done>{goalsDone}</span>/{totalActionsInPlan} goals tracked</> : 'Your progress tree, check off goals in your plan to grow it'}
+            {totalActionsInPlan > 0 ? <>{GROWTH_LABELS[stageForPct(adherencePct)]} · <span data-goals-done>{goalsDone}</span>/{totalActionsInPlan} goals tracked</> : 'Your progress plant, check off goals in your week to grow it'}
           </div>
         </div>
       </section>
 
-      {/* Founder's note — same left-aligned avatar-row layout as the coach
-          section right below it, so the two sit on the exact same left
-          edge and avatar size instead of one being centered and one not. */}
+      {/* Daily Health Check-in — the one section from the reference layout
+          this template was asked to bring over. Checklist items are this
+          patient's real supplements + real lifestyle-guideline lines (never
+          generic placeholders); water/energy/mood are logged per real date. */}
+      <section id="checkin" style={{ background: PALETTE.paper2, padding: '4rem 1.5rem', ...hiddenStyle('checkin') }}>
+        <div style={{ maxWidth: 720, margin: '0 auto' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12, marginBottom: 20 }}>
+            <div>
+              <Eyebrow>Daily accountability</Eyebrow>
+              <SecTitle icon={<CheckCircle2 size={26} />}>Daily Health Check-in</SecTitle>
+            </div>
+            <input data-checkin-date type="date" value={checkinDate} onChange={(e) => setCheckinDate(e.target.value)}
+              style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.8rem', background: PALETTE.paper1, border: `1px solid ${PALETTE.line}`, padding: '9px 12px', borderRadius: 10, color: PALETTE.ink, fontWeight: 600 }} />
+          </div>
+
+          {dailyChecklist.length > 0 ? (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 10 }}>
+              {dailyChecklist.map((item, i) => {
+                const checked = checkedSet.has(`0:${i}:${checkinDate}`)
+                return (
+                  <div key={i} data-goal-toggle={`0:${i}:${checkinDate}`} onClick={() => toggleGoal(0, i, checkinDate)}
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '13px 16px', borderRadius: 14, cursor: 'pointer', border: `1px solid ${checked ? PALETTE.berry : PALETTE.line}`, background: checked ? 'rgba(122,51,70,0.08)' : 'rgba(255,255,255,0.4)', transition: 'background 0.15s ease' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <span data-goal-icon-done style={{ display: checked ? 'inline-flex' : 'none', flexShrink: 0 }}><CheckCircle2 size={18} color={PALETTE.berry} /></span>
+                      <span data-goal-icon-undone style={{ display: checked ? 'none' : 'inline-flex', flexShrink: 0 }}><Circle size={18} opacity={0.4} /></span>
+                      <span data-goal-text style={{ fontSize: '0.88rem', fontWeight: 500, color: checked ? PALETTE.berry : PALETTE.ink, textDecoration: checked ? 'line-through' : 'none' }}>{item}</span>
+                    </div>
+                    <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.68rem', fontWeight: 700, padding: '3px 9px', borderRadius: 20, background: checked ? PALETTE.berry : 'rgba(122,51,70,0.08)', color: checked ? '#fff' : PALETTE.berry, flexShrink: 0 }}>{checked ? 'Done' : 'Pending'}</span>
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            <p style={{ fontSize: '0.9rem', opacity: 0.6 }}>Once {coachFirst} confirms your supplements or lifestyle guidelines, your daily checklist will show up here.</p>
+          )}
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginTop: 20 }}>
+            <div style={{ background: 'rgba(255,255,255,0.4)', border: `1px solid ${PALETTE.line}`, borderRadius: 14, padding: '14px 16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.7rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: PALETTE.berry, marginBottom: 10 }}><Droplet size={13} /> Water (glasses)</div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <button data-water-dec data-no-export onClick={() => adjustWater(-1)} style={{ width: 34, height: 34, borderRadius: 10, border: `1px solid ${PALETTE.line}`, background: PALETTE.gold1, fontWeight: 700, fontSize: '1rem', cursor: 'pointer' }}>−</button>
+                <span data-water-value style={{ fontFamily: "'Fraunces', serif", fontSize: '1.5rem', fontWeight: 600 }}>{todayMetrics.water || 0}</span>
+                <button data-water-inc data-no-export onClick={() => adjustWater(1)} style={{ width: 34, height: 34, borderRadius: 10, border: `1px solid ${PALETTE.line}`, background: PALETTE.gold1, fontWeight: 700, fontSize: '1rem', cursor: 'pointer' }}>+</button>
+              </div>
+            </div>
+            <div style={{ background: 'rgba(255,255,255,0.4)', border: `1px solid ${PALETTE.line}`, borderRadius: 14, padding: '14px 16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.7rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: PALETTE.berry, marginBottom: 10 }}><Zap size={13} /> Energy (1-10)</div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <button data-energy-dec data-no-export onClick={() => adjustEnergy(-1)} style={{ width: 34, height: 34, borderRadius: 10, border: `1px solid ${PALETTE.line}`, background: PALETTE.gold1, fontWeight: 700, fontSize: '1rem', cursor: 'pointer' }}>−</button>
+                <span data-energy-value style={{ fontFamily: "'Fraunces', serif", fontSize: '1.5rem', fontWeight: 600 }}>{todayMetrics.energy || 0}</span>
+                <button data-energy-inc data-no-export onClick={() => adjustEnergy(1)} style={{ width: 34, height: 34, borderRadius: 10, border: `1px solid ${PALETTE.line}`, background: PALETTE.gold1, fontWeight: 700, fontSize: '1rem', cursor: 'pointer' }}>+</button>
+              </div>
+            </div>
+            <div style={{ background: 'rgba(255,255,255,0.4)', border: `1px solid ${PALETTE.line}`, borderRadius: 14, padding: '14px 16px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+              <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.7rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: PALETTE.berry, marginBottom: 10 }}>Mood &amp; reflection</div>
+              <input data-mood-input value={moodDraft} onChange={(e) => setMoodDraft(e.target.value)} onBlur={() => saveMetric('mood', moodDraft)}
+                placeholder="e.g. Calm and focused today"
+                style={{ width: '100%', background: PALETTE.paper1, border: `1px solid ${PALETTE.line}`, borderRadius: 10, padding: '8px 10px', fontSize: '0.85rem', fontFamily: "'Work Sans', sans-serif", color: PALETTE.ink }} />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Founder's note */}
       <section id="founder" style={{ background: PALETTE.paper2, padding: '4rem 1.5rem', ...hiddenStyle('founder') }}>
         <div style={{ maxWidth: 720, margin: '0 auto' }}>
           <Eyebrow>A note from the founder</Eyebrow>
@@ -675,10 +657,7 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
         </div>
       </section>
 
-      {/* Coach — photo, name, and designation stay visible; a personal
-          quote (when the coach has entered one) sits behind a tap on the
-          photo instead of always showing, same pattern as the founder's
-          note above. */}
+      {/* Coach */}
       {data.coach && (
         <section id="coach" style={{ background: PALETTE.paper2, borderTop: `1px solid ${PALETTE.line}`, borderBottom: `1px solid ${PALETTE.line}`, padding: '3rem 1.5rem', ...hiddenStyle('coach') }}>
           <div style={{ maxWidth: 720, margin: '0 auto', display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
@@ -699,8 +678,7 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
         </section>
       )}
 
-      {/* Care team — open, no card border, same floating typographic
-          treatment as "Superfood of the week" rather than a boxed tile. */}
+      {/* Care team */}
       {data.careTeam.length > 0 && (
         <section id="careteam" style={{ background: PALETTE.paper3, padding: '4rem 1.5rem', ...hiddenStyle('careteam') }}>
           <div style={{ maxWidth: 720, margin: '0 auto' }}>
@@ -725,7 +703,7 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
         </section>
       )}
 
-      {/* How to use this guide + Your why — same real walkthrough + reflection as Classic */}
+      {/* How to use this guide + Your why */}
       <section id="howto" style={{ background: PALETTE.gold1, padding: '4rem 1.5rem', ...hiddenStyle('howto') }}>
         <div style={{ maxWidth: 720, margin: '0 auto' }}>
           <Eyebrow>Getting oriented</Eyebrow>
@@ -734,7 +712,7 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 20 }}>
             {[
               { icon: MapPin, title: 'This week', text: 'Check your goals and meals for the week.' },
-              { icon: CheckCircle2, title: 'Each day', text: 'Tick off what you complete.' },
+              { icon: CheckCircle2, title: 'Each day', text: 'Tick off what you complete, including your daily check-in above.' },
               { icon: HelpCircle, title: 'Need help?', text: 'Message ' + coachFirst + ' if something doesn’t work for you.' },
             ].map(({ icon: Icon, title, text }) => (
               <div key={title}>
@@ -769,9 +747,8 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
         </section>
       )}
 
-      {/* Power points — coach-pasted links (videos, articles, tools) each
-          with a short note. Recipes are still browsable per-week inside
-          "Your roadmap" below. */}
+
+      {/* Power points — coach-pasted links each with a short note */}
       {data.powerPoints.filter((pp) => pp.url).length > 0 && (
         <section id="nutrition" style={{ background: PALETTE.paper3, padding: '4rem 1.5rem', ...hiddenStyle('nutrition') }}>
           <div style={{ maxWidth: 720, margin: '0 auto' }}>
@@ -795,203 +772,157 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
         </section>
       )}
 
-      {/* Your roadmap — real Month → Week → Recipes structure, same
-          per-week curated data Classic uses (src/lib/pdf/weekRecipes.ts).
-          Everything expands inline, in place, as part of the page — no
-          popup dialogs. */}
-      {months.length > 0 && (
+      {/* Your roadmap — one week only, straight to the day accordion, no
+          month/week tabs since there's exactly one week to show. */}
+      {week && (
         <section id="roadmap" style={{ background: PALETTE.dusk1, padding: '4rem 1.5rem', ...hiddenStyle('roadmap') }}>
           <div style={{ maxWidth: 920, margin: '0 auto' }}>
-            <Eyebrow dark>Month by month</Eyebrow>
+            <Eyebrow dark>Your one week</Eyebrow>
             <SecTitle dark icon={<MapPin size={26} color={PALETTE.cream} />}>Your Roadmap</SecTitle>
+            <p style={{ color: PALETTE.cream, opacity: 0.75, fontSize: '0.92rem', marginTop: 12, marginBottom: 24 }}>{week.focus_theme}</p>
 
-            <RoadmapTrail monthStats={progress.monthStats} onSelect={(n) => { const next = openMonth === n ? null : n; setOpenMonth(next); setOpenWeek(null); setOpenDay(null); setOpenSlot(null); setOpenRecipeId(null) }} />
-
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 24 }}>
-              {months.map((m) => (
-                <button key={m.monthNumber} data-month-trigger={m.monthNumber} onClick={() => { const next = openMonth === m.monthNumber ? null : m.monthNumber; setOpenMonth(next); setOpenWeek(null); setOpenDay(null); setOpenSlot(null); setOpenRecipeId(null) }}
-                  style={{
-                    padding: '9px 18px', borderRadius: 24, cursor: 'pointer', fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.78rem', letterSpacing: '0.04em',
-                    border: `1px solid ${openMonth === m.monthNumber ? PALETTE.gold1 : 'rgba(243,236,218,0.3)'}`,
-                    background: openMonth === m.monthNumber ? PALETTE.gold1 : 'transparent', color: openMonth === m.monthNumber ? PALETTE.ink : PALETTE.cream,
-                  }}>
-                  {m.monthLabel}
-                </button>
-              ))}
-            </div>
-
-            {months.map((m) => (
-              <div key={m.monthNumber} data-month-body={m.monthNumber} style={{ marginTop: 28, display: openMonth === m.monthNumber ? 'block' : 'none' }}>
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 20 }}>
-                  {m.weeks.map((w) => (
-                    <button key={w.week_number} data-week-trigger={w.week_number} onClick={() => { const next = openWeek === w.week_number ? null : w.week_number; setOpenWeek(next); setOpenDay(null); setOpenSlot(null); setOpenRecipeId(null) }}
-                      style={{
-                        textAlign: 'left', padding: '12px 16px', borderRadius: 10, cursor: 'pointer', minWidth: 150,
-                        border: `1px solid ${openWeek === w.week_number ? PALETTE.gold1 : 'rgba(243,236,218,0.22)'}`,
-                        background: openWeek === w.week_number ? 'rgba(224,195,132,0.14)' : 'rgba(243,236,218,0.05)',
-                      }}>
-                      <div style={{ color: PALETTE.gold1, fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.72rem', letterSpacing: '0.05em' }}>Week {w.week_number}</div>
-                      <div style={{ color: PALETTE.cream, fontSize: '0.85rem', marginTop: 3 }}>{w.focus_theme}</div>
-                    </button>
-                  ))}
-                </div>
-
-                {m.weeks.map((w) => (
-                  <div key={w.week_number} data-week-body={w.week_number} style={{ display: openWeek === w.week_number ? 'block' : 'none', borderTop: '1px solid rgba(243,236,218,0.18)', paddingTop: 24 }}>
-                    {(w.actions?.length ?? 0) > 0 && (
-                      <div style={{ marginBottom: 28 }}>
-                        <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.7rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: PALETTE.gold1, opacity: 0.85 }}>Sunday to Saturday, this week&apos;s goals</span>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
-                          {DAY_LABELS.map((day, dayIndex) => {
-                            const dayId = `${w.week_number}-${day}`
-                            const isDayOpen = openDay === dayId
-                            const dayDate = dateForWeekDay(data.createdAt, w.week_number, dayIndex)
-                            return (
-                              <div key={day} style={{ border: '1px solid rgba(243,236,218,0.22)', borderRadius: 12, overflow: 'hidden' }}>
-                                <button data-day-trigger={dayId} onClick={() => setOpenDay(isDayOpen ? null : dayId)}
-                                  style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '11px 14px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
-                                  <span style={{ fontFamily: "'Fraunces', serif", fontSize: '0.95rem', fontWeight: 500, color: PALETTE.cream }}>{day}</span>
-                                  {isDayOpen ? <ChevronDown size={16} color={PALETTE.gold1} /> : <ChevronRight size={16} color={PALETTE.cream} opacity={0.5} />}
-                                </button>
-                                <div data-day-body={dayId} style={{ display: isDayOpen ? 'block' : 'none', padding: '0 14px 14px' }}>
-                                  <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-                                    {(w.days?.[dayIndex] ?? w.actions ?? []).map((action, ai) => {
-                                      const checked = checkedSet.has(`${w.week_number}:${ai}:${dayDate}`)
-                                      return (
-                                        <li key={ai} data-goal-toggle={`${w.week_number}:${ai}:${dayDate}`} onClick={() => toggleGoal(w.week_number, ai, dayDate)}
-                                          style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer', marginBottom: 8, padding: '2px 0' }}>
-                                          <svg width="16" height="16" viewBox="0 0 24 24" style={{ flexShrink: 0, marginTop: 2 }}>
-                                            <circle data-goal-check-track data-on-color={PALETTE.gold1} data-off-color="rgba(243,236,218,0.4)" cx="12" cy="12" r="10" fill="none" stroke={checked ? PALETTE.gold1 : 'rgba(243,236,218,0.4)'} strokeWidth="2" style={{ transition: 'stroke 0.25s ease' }} />
-                                            <circle data-goal-check-fill cx="12" cy="12" r="10" fill={PALETTE.gold1} style={{ opacity: checked ? 1 : 0, transition: 'opacity 0.25s ease' }} />
-                                            <path data-goal-check-tick d="M7 12.5 10.5 16 17 8" fill="none" stroke="#fff" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"
-                                              strokeDasharray="16" style={{ strokeDashoffset: checked ? 0 : 16, transition: 'stroke-dashoffset 0.35s ease 0.05s' }} />
-                                          </svg>
-                                          <span data-goal-text style={{ color: PALETTE.cream, opacity: checked ? 0.55 : 0.9, fontSize: '0.92rem', lineHeight: 1.6, textDecoration: checked ? 'line-through' : 'none', transition: 'opacity 0.2s ease' }}>{action}</span>
-                                        </li>
-                                      )
-                                    })}
-                                  </ul>
-                                </div>
-                              </div>
-                            )
-                          })}
-                        </div>
-                      </div>
-                    )}
-
-                    {(() => {
-                      const weekSlotRecipes = getSlotRecipes(w.week_number, DAY_MEAL_SLOTS, data.weeklyManualRecipes, data.manualRecipes, weekMealMatches, data.recipeBank, 'Picked for your plan.')
-                      return (
-                        <div>
-                          <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.7rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: PALETTE.gold1, opacity: 0.85 }}>Recipes for the week</span>
-                          <div data-slot-list style={{ display: openSlot == null ? 'grid' : 'none', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginTop: 10 }}>
-                            {weekSlotRecipes.map(({ slot, matches }) => {
-                              const slotId = `${w.week_number}-${slot}`
+            {(week.actions?.length ?? 0) > 0 && (
+              <div style={{ marginBottom: 28 }}>
+                <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.7rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: PALETTE.gold1, opacity: 0.85 }}>Sunday to Saturday, this week&apos;s goals</span>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
+                  {DAY_LABELS.map((day, dayIndex) => {
+                    const dayId = `${week.week_number}-${day}`
+                    const isDayOpen = openDay === dayId
+                    const dayDate = dateForWeekDay(data.createdAt, week.week_number, dayIndex)
+                    return (
+                      <div key={day} style={{ border: '1px solid rgba(243,236,218,0.22)', borderRadius: 12, overflow: 'hidden' }}>
+                        <button data-day-trigger={dayId} onClick={() => setOpenDay(isDayOpen ? null : dayId)}
+                          style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '11px 14px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
+                          <span style={{ fontFamily: "'Fraunces', serif", fontSize: '0.95rem', fontWeight: 500, color: PALETTE.cream }}>{day}</span>
+                          {isDayOpen ? <ChevronDown size={16} color={PALETTE.gold1} /> : <ChevronRight size={16} color={PALETTE.cream} opacity={0.5} />}
+                        </button>
+                        <div data-day-body={dayId} style={{ display: isDayOpen ? 'block' : 'none', padding: '0 14px 14px' }}>
+                          <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+                            {(week.days?.[dayIndex] ?? week.actions ?? []).map((action, ai) => {
+                              const checked = checkedSet.has(`${week.week_number}:${ai}:${dayDate}`)
                               return (
-                                <button key={slot} data-slot-trigger={slotId} onClick={() => setOpenSlot(slotId)}
-                                  style={{ textAlign: 'left', padding: '11px 13px', borderRadius: 12, cursor: 'pointer', border: '1px solid rgba(243,236,218,0.22)', background: 'rgba(243,236,218,0.08)' }}>
-                                  <div style={{ fontFamily: "'Fraunces', serif", fontSize: '0.9rem', fontWeight: 500, color: PALETTE.cream }}>{SLOT_LABELS[slot]}</div>
-                                  <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.72rem', color: matches.length ? PALETTE.gold1 : PALETTE.cream, opacity: matches.length ? 1 : 0.5, marginTop: 4, fontWeight: 600 }}>
-                                    {matches.length ? `${matches.length} recipe${matches.length === 1 ? '' : 's'}` : `Not detected yet, ${coachFirst} will add some.`}
-                                  </div>
-                                </button>
+                                <li key={ai} data-goal-toggle={`${week.week_number}:${ai}:${dayDate}`} onClick={() => toggleGoal(week.week_number, ai, dayDate)}
+                                  style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer', marginBottom: 8, padding: '2px 0' }}>
+                                  <svg width="16" height="16" viewBox="0 0 24 24" style={{ flexShrink: 0, marginTop: 2 }}>
+                                    <circle data-goal-check-track data-on-color={PALETTE.gold1} data-off-color="rgba(243,236,218,0.4)" cx="12" cy="12" r="10" fill="none" stroke={checked ? PALETTE.gold1 : 'rgba(243,236,218,0.4)'} strokeWidth="2" style={{ transition: 'stroke 0.25s ease' }} />
+                                    <circle data-goal-check-fill cx="12" cy="12" r="10" fill={PALETTE.gold1} style={{ opacity: checked ? 1 : 0, transition: 'opacity 0.25s ease' }} />
+                                    <path data-goal-check-tick d="M7 12.5 10.5 16 17 8" fill="none" stroke="#fff" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"
+                                      strokeDasharray="16" style={{ strokeDashoffset: checked ? 0 : 16, transition: 'stroke-dashoffset 0.35s ease 0.05s' }} />
+                                  </svg>
+                                  <span data-goal-text style={{ color: PALETTE.cream, opacity: checked ? 0.55 : 0.9, fontSize: '0.92rem', lineHeight: 1.6, textDecoration: checked ? 'line-through' : 'none', transition: 'opacity 0.2s ease' }}>{action}</span>
+                                </li>
                               )
                             })}
+                          </ul>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
+            {(() => {
+              const weekSlotRecipes = getSlotRecipes(week.week_number, DAY_MEAL_SLOTS, data.weeklyManualRecipes, data.manualRecipes, weekMealMatches, data.recipeBank, 'Picked for your plan.')
+              return (
+                <div>
+                  <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.7rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: PALETTE.gold1, opacity: 0.85 }}>Recipes for the week</span>
+                  <div data-slot-list style={{ display: openSlot == null ? 'grid' : 'none', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginTop: 10 }}>
+                    {weekSlotRecipes.map(({ slot, matches }) => {
+                      const slotId = `${week.week_number}-${slot}`
+                      return (
+                        <button key={slot} data-slot-trigger={slotId} onClick={() => setOpenSlot(slotId)}
+                          style={{ textAlign: 'left', padding: '11px 13px', borderRadius: 12, cursor: 'pointer', border: '1px solid rgba(243,236,218,0.22)', background: 'rgba(243,236,218,0.08)' }}>
+                          <div style={{ fontFamily: "'Fraunces', serif", fontSize: '0.9rem', fontWeight: 500, color: PALETTE.cream }}>{SLOT_LABELS[slot]}</div>
+                          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.72rem', color: matches.length ? PALETTE.gold1 : PALETTE.cream, opacity: matches.length ? 1 : 0.5, marginTop: 4, fontWeight: 600 }}>
+                            {matches.length ? `${matches.length} recipe${matches.length === 1 ? '' : 's'}` : `Not detected yet, ${coachFirst} will add some.`}
                           </div>
+                        </button>
+                      )
+                    })}
+                  </div>
 
-                          {weekSlotRecipes.map(({ slot, matches }) => {
-                            const slotId = `${w.week_number}-${slot}`
+                  {weekSlotRecipes.map(({ slot, matches }) => {
+                    const slotId = `${week.week_number}-${slot}`
+                    return (
+                    <div key={slot} data-slot-body={slotId} style={{ display: openSlot === slotId ? 'block' : 'none', marginTop: 16 }}>
+                      <button data-slot-back onClick={() => setOpenSlot(null)}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', color: PALETTE.gold1, fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.78rem', fontWeight: 700, padding: 0, marginBottom: 12 }}>
+                        ← Back to meal slots
+                      </button>
+                      <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.7rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: PALETTE.gold1, opacity: 0.85, display: 'block', marginBottom: 10 }}>{SLOT_LABELS[slot]}, picked for your plan</span>
+                      {matches.length > 0 ? (
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 14 }}>
+                          {matches.map(({ recipe }) => {
+                            const recipeKey = `${week.week_number}-${slot}-${recipe.id}`
                             return (
-                            <div key={slot} data-slot-body={slotId} style={{ display: openSlot === slotId ? 'block' : 'none', marginTop: 16 }}>
-                              <button data-slot-back onClick={() => setOpenSlot(null)}
-                                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', color: PALETTE.gold1, fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.78rem', fontWeight: 700, padding: 0, marginBottom: 12 }}>
-                                ← Back to meal slots
-                              </button>
-                              <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.7rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: PALETTE.gold1, opacity: 0.85, display: 'block', marginBottom: 10 }}>{SLOT_LABELS[slot]}, picked for your plan</span>
-                              {matches.length > 0 ? (
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 14 }}>
-                                  {matches.map(({ recipe }) => {
-                                    const recipeKey = `${w.week_number}-${slot}-${recipe.id}`
-                                    return (
-                                    <button key={recipeKey} data-recipe-trigger={recipeKey} onClick={() => setOpenRecipeId(openRecipeId === recipeKey ? null : recipeKey)}
-                                      style={{ textAlign: 'left', padding: 0, cursor: 'pointer', background: openRecipeId === recipeKey ? 'rgba(224,195,132,0.16)' : 'rgba(243,236,218,0.08)', border: `1px solid ${openRecipeId === recipeKey ? PALETTE.gold1 : 'rgba(243,236,218,0.22)'}`, borderRadius: 12, overflow: 'hidden' }}>
-                                      {recipe.image_url ? (
-                                        <img src={recipe.image_url} alt={recipe.name} style={{ width: '100%', height: 100, objectFit: 'cover', display: 'block' }} />
-                                      ) : (
-                                        <div style={{ width: '100%', height: 100, background: 'rgba(243,236,218,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                          <ChefHat size={20} color={PALETTE.cream} opacity={0.5} />
-                                        </div>
-                                      )}
-                                      <div style={{ padding: '9px 11px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
-                                        <span style={{ color: PALETTE.cream, fontSize: '0.85rem', fontWeight: 600 }}>{recipe.name}</span>
-                                        {openRecipeId === recipeKey ? <ChevronDown size={14} color={PALETTE.gold1} style={{ flexShrink: 0 }} /> : <ChevronRight size={14} color={PALETTE.cream} opacity={0.5} style={{ flexShrink: 0 }} />}
-                                      </div>
-                                    </button>
-                                    )
-                                  })}
-                                </div>
+                            <button key={recipeKey} data-recipe-trigger={recipeKey} onClick={() => setOpenRecipeId(openRecipeId === recipeKey ? null : recipeKey)}
+                              style={{ textAlign: 'left', padding: 0, cursor: 'pointer', background: openRecipeId === recipeKey ? 'rgba(224,195,132,0.16)' : 'rgba(243,236,218,0.08)', border: `1px solid ${openRecipeId === recipeKey ? PALETTE.gold1 : 'rgba(243,236,218,0.22)'}`, borderRadius: 12, overflow: 'hidden' }}>
+                              {recipe.image_url ? (
+                                <img src={recipe.image_url} alt={recipe.name} style={{ width: '100%', height: 100, objectFit: 'cover', display: 'block' }} />
                               ) : (
-                                <div style={{ fontSize: '0.88rem', color: PALETTE.cream, opacity: 0.6 }}>Nothing detected for {SLOT_LABELS[slot].toLowerCase()} yet, {coachFirst} will add some.</div>
-                              )}
-
-                              {/* Recipe detail — expands inline, right under
-                                  the slot it belongs to, as part of the page
-                                  rather than a floating popup. Every match's
-                                  detail is always mounted (just hidden) so a
-                                  downloaded copy of this page has every
-                                  recipe available, not just whichever one
-                                  happened to be open. */}
-                              {matches.map(({ recipe }) => {
-                                const recipeKey = `${w.week_number}-${slot}-${recipe.id}`
-                                return (
-                                <div key={recipeKey} data-recipe-body={recipeKey} style={{ display: openRecipeId === recipeKey ? 'block' : 'none', marginTop: 14, background: 'rgba(243,236,218,0.06)', border: `1px solid ${PALETTE.gold1}`, borderRadius: 14, padding: '1.75rem', position: 'relative' }}>
-                                  <button onClick={() => setOpenRecipeId(null)} data-no-export style={{ position: 'absolute', top: 18, right: 18, background: 'none', border: 'none', cursor: 'pointer', color: PALETTE.cream, opacity: 0.6 }}><X size={18} /></button>
-                                  <div style={{ display: 'grid', gridTemplateColumns: recipe.image_url ? '1fr 1.3fr' : '1fr', gap: 24 }}>
-                                    {recipe.image_url && <img src={recipe.image_url} alt={recipe.name} style={{ width: '100%', borderRadius: 10, objectFit: 'cover', maxHeight: 320 }} />}
-                                    <div>
-                                      {recipe.protein_label && <Eyebrow dark>{recipe.protein_label}</Eyebrow>}
-                                      <h3 style={{ fontFamily: "'Fraunces', serif", fontWeight: 500, fontSize: '1.4rem', color: PALETTE.cream, margin: '0 0 16px' }}>{recipe.name}</h3>
-                                      <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.7rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: PALETTE.gold1 }}>Ingredients</span>
-                                      <ul style={{ listStyle: 'none', margin: '8px 0 16px', padding: 0 }}>
-                                        {splitRecipeLines(recipe.ingredients).map((line, i) => (
-                                          <li key={i} style={{ color: PALETTE.cream, opacity: 0.9, fontSize: '0.88rem', lineHeight: 1.6, marginBottom: 4 }}>{line}</li>
-                                        ))}
-                                      </ul>
-                                      <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.7rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: PALETTE.gold1 }}>Directions</span>
-                                      <ol style={{ margin: '8px 0 0', paddingLeft: 20 }}>
-                                        {splitRecipeLines(recipe.steps).map((line, i) => (
-                                          <li key={i} style={{ color: PALETTE.cream, opacity: 0.9, fontSize: '0.88rem', lineHeight: 1.65, marginBottom: 6 }}>{line}</li>
-                                        ))}
-                                      </ol>
-                                      {recipe.benefits && recipe.benefits.length > 0 && (
-                                        <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid rgba(243,236,218,0.18)' }}>
-                                          <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.7rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: PALETTE.gold1 }}>Why it works</span>
-                                          <ul style={{ listStyle: 'none', margin: '8px 0 0', padding: 0 }}>
-                                            {recipe.benefits.map((b, i) => <li key={i} style={{ color: PALETTE.cream, opacity: 0.9, fontSize: '0.86rem', lineHeight: 1.55, marginBottom: 4 }}>{b}</li>)}
-                                          </ul>
-                                        </div>
-                                      )}
-                                    </div>
-                                  </div>
+                                <div style={{ width: '100%', height: 100, background: 'rgba(243,236,218,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                  <ChefHat size={20} color={PALETTE.cream} opacity={0.5} />
                                 </div>
-                                )
-                              })}
-                            </div>
+                              )}
+                              <div style={{ padding: '9px 11px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                                <span style={{ color: PALETTE.cream, fontSize: '0.85rem', fontWeight: 600 }}>{recipe.name}</span>
+                                {openRecipeId === recipeKey ? <ChevronDown size={14} color={PALETTE.gold1} style={{ flexShrink: 0 }} /> : <ChevronRight size={14} color={PALETTE.cream} opacity={0.5} style={{ flexShrink: 0 }} />}
+                              </div>
+                            </button>
                             )
                           })}
                         </div>
-                      )
-                    })()}
-                  </div>
-                ))}
-              </div>
-            ))}
+                      ) : (
+                        <div style={{ fontSize: '0.88rem', color: PALETTE.cream, opacity: 0.6 }}>Nothing detected for {SLOT_LABELS[slot].toLowerCase()} yet, {coachFirst} will add some.</div>
+                      )}
+
+                      {matches.map(({ recipe }) => {
+                        const recipeKey = `${week.week_number}-${slot}-${recipe.id}`
+                        return (
+                        <div key={recipeKey} data-recipe-body={recipeKey} style={{ display: openRecipeId === recipeKey ? 'block' : 'none', marginTop: 14, background: 'rgba(243,236,218,0.06)', border: `1px solid ${PALETTE.gold1}`, borderRadius: 14, padding: '1.75rem', position: 'relative' }}>
+                          <button onClick={() => setOpenRecipeId(null)} data-no-export style={{ position: 'absolute', top: 18, right: 18, background: 'none', border: 'none', cursor: 'pointer', color: PALETTE.cream, opacity: 0.6 }}><X size={18} /></button>
+                          <div style={{ display: 'grid', gridTemplateColumns: recipe.image_url ? '1fr 1.3fr' : '1fr', gap: 24 }}>
+                            {recipe.image_url && <img src={recipe.image_url} alt={recipe.name} style={{ width: '100%', borderRadius: 10, objectFit: 'cover', maxHeight: 320 }} />}
+                            <div>
+                              {recipe.protein_label && <Eyebrow dark>{recipe.protein_label}</Eyebrow>}
+                              <h3 style={{ fontFamily: "'Fraunces', serif", fontWeight: 500, fontSize: '1.4rem', color: PALETTE.cream, margin: '0 0 16px' }}>{recipe.name}</h3>
+                              <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.7rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: PALETTE.gold1 }}>Ingredients</span>
+                              <ul style={{ listStyle: 'none', margin: '8px 0 16px', padding: 0 }}>
+                                {splitRecipeLines(recipe.ingredients).map((line, i) => (
+                                  <li key={i} style={{ color: PALETTE.cream, opacity: 0.9, fontSize: '0.88rem', lineHeight: 1.6, marginBottom: 4 }}>{line}</li>
+                                ))}
+                              </ul>
+                              <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.7rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: PALETTE.gold1 }}>Directions</span>
+                              <ol style={{ margin: '8px 0 0', paddingLeft: 20 }}>
+                                {splitRecipeLines(recipe.steps).map((line, i) => (
+                                  <li key={i} style={{ color: PALETTE.cream, opacity: 0.9, fontSize: '0.88rem', lineHeight: 1.65, marginBottom: 6 }}>{line}</li>
+                                ))}
+                              </ol>
+                              {recipe.benefits && recipe.benefits.length > 0 && (
+                                <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid rgba(243,236,218,0.18)' }}>
+                                  <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.7rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: PALETTE.gold1 }}>Why it works</span>
+                                  <ul style={{ listStyle: 'none', margin: '8px 0 0', padding: 0 }}>
+                                    {recipe.benefits.map((b, i) => <li key={i} style={{ color: PALETTE.cream, opacity: 0.9, fontSize: '0.86rem', lineHeight: 1.55, marginBottom: 4 }}>{b}</li>)}
+                                  </ul>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                        )
+                      })}
+                    </div>
+                    )
+                  })}
+                </div>
+              )
+            })()}
           </div>
         </section>
       )}
 
-      {/* Superfood of the week — same generic-but-real copy as Classic (no
-          per-week superfood data exists to show specifics beyond this). */}
+      {/* Superfood of the week */}
       <section id="superfood" style={{ background: PALETTE.gold2, padding: '4rem 1.5rem', ...hiddenStyle('superfood') }}>
         <div style={{ maxWidth: 720, margin: '0 auto' }}>
           <Eyebrow>Fresh each week</Eyebrow>
@@ -1022,81 +953,46 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
         </section>
       )}
 
-      {/* Shopping list — same recipe-derived, categorized ingredients as
-          Classic (src/lib/groceryList.ts), broken out per week; expands
-          inline instead of a popup. */}
+      {/* Shopping list */}
       <section id="grocery" style={{ background: PALETTE.paper2, padding: '4rem 1.5rem', ...hiddenStyle('grocery') }}>
         <div style={{ maxWidth: 720, margin: '0 auto' }}>
           <Eyebrow>What to buy</Eyebrow>
           <SecTitle icon={<ShoppingCart size={26} />}>Your Shopping List</SecTitle>
-          <p style={{ fontSize: '0.9rem', opacity: 0.7, marginTop: 16, marginBottom: 20 }}>Pulled straight from the ingredients of your matched recipes. Pick a week below to see it.</p>
-          {months.length === 0 ? (
+          <p style={{ fontSize: '0.9rem', opacity: 0.7, marginTop: 16, marginBottom: 20 }}>Pulled straight from the ingredients of your matched recipes.</p>
+          {!week ? (
             <p style={{ fontSize: '0.9rem', opacity: 0.6 }}>Not planned yet, check back once your coach generates your roadmap.</p>
-          ) : (
-            <>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                {months.map((m) => (
-                  <button key={m.monthNumber} data-grocery-month-trigger={m.monthNumber} onClick={() => { const next = openGroceryMonth === m.monthNumber ? null : m.monthNumber; setOpenGroceryMonth(next); setOpenGroceryWeek(null) }}
-                    style={{
-                      padding: '9px 18px', borderRadius: 24, cursor: 'pointer', fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.78rem',
-                      border: `1px solid ${openGroceryMonth === m.monthNumber ? PALETTE.berry : PALETTE.line}`,
-                      background: openGroceryMonth === m.monthNumber ? PALETTE.berry : 'transparent', color: openGroceryMonth === m.monthNumber ? '#fff' : PALETTE.ink,
-                    }}>
-                    {m.monthLabel}
-                  </button>
+          ) : (() => {
+            const weekRecipes = getSlotRecipes(week.week_number, DAY_MEAL_SLOTS, data.weeklyManualRecipes, data.manualRecipes, weekMealMatches, data.recipeBank, 'Picked for your plan.').flatMap((s) => s.matches).map((mm) => mm.recipe)
+            const cats = aiGroceryCache[week.week_number] ?? buildGroceryList(weekRecipes)
+            const finalCats = cats.length > 0 ? cats : GROCERY_CATEGORIES
+            return (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 20 }}>
+                {finalCats.map((cat) => (
+                  <div key={cat.head}>
+                    <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.68rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: PALETTE.berry }}>{cat.head}</span>
+                    <ul style={{ listStyle: 'none', margin: '8px 0 0', padding: 0 }}>
+                      {cat.items.map((item) => {
+                        const itemKey = `${week.week_number}:${cat.head}:${item}`
+                        const bought = boughtItems.has(itemKey)
+                        return (
+                          <li key={item} data-grocery-item={itemKey} onClick={() => toggleBought(itemKey)}
+                            style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.82rem', opacity: bought ? 0.45 : 0.8, padding: '3px 0', cursor: 'pointer' }}>
+                            <span data-grocery-icon-done style={{ display: bought ? 'inline-flex' : 'none', flexShrink: 0 }}><CheckCircle2 size={13} color={PALETTE.berry} /></span>
+                            <span data-grocery-icon-undone style={{ display: bought ? 'none' : 'inline-flex', flexShrink: 0 }}><Circle size={13} opacity={0.5} /></span>
+                            <span data-grocery-item-text style={{ textDecoration: bought ? 'line-through' : 'none' }}>{item}</span>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  </div>
                 ))}
               </div>
-              {months.map((m) => (
-                <div key={m.monthNumber} data-grocery-month-body={m.monthNumber} style={{ marginTop: 20, display: openGroceryMonth === m.monthNumber ? 'block' : 'none' }}>
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 20 }}>
-                    {m.weeks.map((w) => (
-                      <button key={w.week_number} data-grocery-week-trigger={w.week_number} onClick={() => setOpenGroceryWeek(openGroceryWeek === w.week_number ? null : w.week_number)}
-                        style={{
-                          padding: '8px 14px', borderRadius: 10, cursor: 'pointer', fontSize: '0.82rem', fontWeight: 700,
-                          border: `1px solid ${openGroceryWeek === w.week_number ? PALETTE.berry : PALETTE.line}`,
-                          background: openGroceryWeek === w.week_number ? 'rgba(122,51,70,0.08)' : 'transparent',
-                        }}>
-                        Week {w.week_number}
-                      </button>
-                    ))}
-                  </div>
-                  {m.weeks.map((w) => {
-                    const weekRecipes = getSlotRecipes(w.week_number, DAY_MEAL_SLOTS, data.weeklyManualRecipes, data.manualRecipes, weekMealMatches, data.recipeBank, 'Picked for your plan.').flatMap((s) => s.matches).map((mm) => mm.recipe)
-                    const cats = aiGroceryCache[w.week_number] ?? buildGroceryList(weekRecipes)
-                    const finalCats = cats.length > 0 ? cats : GROCERY_CATEGORIES
-                    return (
-                      <div key={w.week_number} data-grocery-week-body={w.week_number} style={{ display: openGroceryWeek === w.week_number ? 'grid' : 'none', borderTop: `1px solid ${PALETTE.line}`, paddingTop: 20, gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 20 }}>
-                        {finalCats.map((cat) => (
-                          <div key={cat.head}>
-                            <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.68rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: PALETTE.berry }}>{cat.head}</span>
-                            <ul style={{ listStyle: 'none', margin: '8px 0 0', padding: 0 }}>
-                              {cat.items.map((item) => {
-                                const itemKey = `${w.week_number}:${cat.head}:${item}`
-                                const bought = boughtItems.has(itemKey)
-                                return (
-                                  <li key={item} data-grocery-item={itemKey} onClick={() => toggleBought(itemKey)}
-                                    style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.82rem', opacity: bought ? 0.45 : 0.8, padding: '3px 0', cursor: 'pointer' }}>
-                                    <span data-grocery-icon-done style={{ display: bought ? 'inline-flex' : 'none', flexShrink: 0 }}><CheckCircle2 size={13} color={PALETTE.berry} /></span>
-                                    <span data-grocery-icon-undone style={{ display: bought ? 'none' : 'inline-flex', flexShrink: 0 }}><Circle size={13} opacity={0.5} /></span>
-                                    <span data-grocery-item-text style={{ textDecoration: bought ? 'line-through' : 'none' }}>{item}</span>
-                                  </li>
-                                )
-                              })}
-                            </ul>
-                          </div>
-                        ))}
-                      </div>
-                    )
-                  })}
-                </div>
-              ))}
-            </>
-          )}
+            )
+          })()}
         </div>
       </section>
 
-      {/* What's included in your care — same coach-entered tiles as
-          Classic; expands inline instead of a popup. */}
+      {/* What's included in your care */}
       {data.careServices.length > 0 && (
         <section id="services" style={{ background: PALETTE.paper3, padding: '4rem 1.5rem', ...hiddenStyle('services') }}>
           <div style={{ maxWidth: 720, margin: '0 auto' }}>
@@ -1128,19 +1024,19 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
         </section>
       )}
 
-      {/* Track your progress — same real check-in-derived stats as Classic */}
+      {/* Track your progress */}
       <section id="track" style={{ background: PALETTE.gold1, padding: '4rem 1.5rem', ...hiddenStyle('track') }}>
         <div style={{ maxWidth: 720, margin: '0 auto' }}>
           <Eyebrow>Real numbers, not a guess</Eyebrow>
           <SecTitle icon={<CheckCircle2 size={26} />}>Track Your Progress</SecTitle>
-          <p data-track-empty style={{ fontSize: '0.9rem', opacity: 0.65, marginTop: 16, display: progress.totalDaysLogged === 0 ? 'block' : 'none' }}>No check-ins logged yet, tap a goal in your roadmap above each day you complete it, and your progress will show up here.</p>
+          <p data-track-empty style={{ fontSize: '0.9rem', opacity: 0.65, marginTop: 16, display: progress.totalDaysLogged === 0 ? 'block' : 'none' }}>No check-ins logged yet, tap a goal above each day you complete it, and your progress will show up here.</p>
           <div data-track-content style={{ display: progress.totalDaysLogged === 0 ? 'none' : 'block' }}>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 20, marginBottom: 24 }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 20 }}>
               {[
                 { key: 'streak', icon: <StreakFlame lit={progress.streak > 0} pop={cheering} />, value: progress.streak, label: 'day streak' },
                 { key: 'days', icon: <CalendarCheck size={14} />, value: progress.totalDaysLogged, label: 'days logged, total' },
                 { key: 'goals', icon: <Target size={14} />, value: `${goalsDone}/${totalActionsInPlan}`, label: 'goals accomplished' },
-                { key: 'best', icon: <TrendingUp size={14} />, value: progress.bestMonth ? `${progress.bestMonth.pct}%` : '0%', label: progress.bestMonth ? `best month · ${progress.bestMonth.monthLabel}` : 'best month' },
+                { key: 'best', icon: <TrendingUp size={14} />, value: `${progress.pct}%`, label: 'this week' },
               ].map((s) => (
                 <div key={s.key} style={{ flex: '1 1 130px', padding: '12px 14px', borderRadius: 10, border: `1px solid ${PALETTE.line}`, background: 'rgba(255,255,255,0.35)' }}>
                   <span style={{ color: PALETTE.berry }}>{s.icon}</span>
@@ -1149,21 +1045,11 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
                 </div>
               ))}
             </div>
-            <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.7rem', letterSpacing: '0.06em', textTransform: 'uppercase', opacity: 0.6 }}>Goals completed by month</span>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 20, marginTop: 12 }}>
-              {progress.monthStats.map((m) => (
-                <div key={m.monthNumber} style={{ textAlign: 'center' }}>
-                  <div data-stat-pct={m.monthNumber} style={{ fontSize: '1.3rem', fontWeight: 700, fontFamily: "'Fraunces', serif", color: m.pct >= 70 ? PALETTE.berry : PALETTE.ink }}>{m.pct}%</div>
-                  <div style={{ fontSize: '0.78rem', fontWeight: 600, marginTop: 2 }}>{m.monthLabel}</div>
-                  <div data-stat-sub={m.monthNumber} style={{ fontSize: '0.72rem', opacity: 0.55 }}>{m.doneActions}/{m.totalActions} goals</div>
-                </div>
-              ))}
-            </div>
           </div>
         </div>
       </section>
 
-      {/* When to reach us / next appointment */}
+      {/* When to reach us */}
       <section id="reach" style={{ background: PALETTE.night1, padding: '4rem 1.5rem', ...hiddenStyle('reach') }}>
         <div style={{ maxWidth: 920, margin: '0 auto' }}>
           <Eyebrow dark>Reach us</Eyebrow>
@@ -1209,7 +1095,7 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
           <div style={{ marginTop: 20 }}>
             {[
               ['What if I can’t finish everything on my plate exactly as shown?', 'Getting the food groups roughly right matters far more than hitting exact portions.'],
-              ['What if I miss a few days on my habit tracker?', 'Log what actually happened, not what you wish had happened. An honest gap tells your coach more than a perfect-looking week.'],
+              ['What if I miss a day on my daily check-in?', 'Log what actually happened, not what you wish had happened. An honest gap tells your coach more than a perfect-looking week.'],
               ['Can I eat something that’s not on the lists?', 'Yes, the lists are what to lean on, not a ban on everything else. Ask your coach if unsure.'],
             ].map(([q, a], i) => {
               const isOpen = openFaq === i

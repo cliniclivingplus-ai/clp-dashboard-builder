@@ -129,6 +129,18 @@ export default function InterpretPage() {
     finally { setLoading(false) }
   }
 
+  // Creates a genuinely NEW roadmap (new id, new dashboard link) with
+  // whatever duration is currently selected — for when the plan itself
+  // needs to change shape (e.g. going from a 3-month to a 6-month plan),
+  // not just refreshed content at the same length. The current roadmap is
+  // left completely untouched in the database; this just stops showing it
+  // here in favor of the new one.
+  async function regeneratePlan() {
+    const ok = window.confirm('Generate a brand new roadmap with the current duration?\n\nThis creates a separate dashboard with its own new link — your current roadmap stays exactly as it is, untouched, just no longer shown here.')
+    if (!ok) return
+    await generateRoadmap()
+  }
+
   if (fetching) return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 300 }}>
       <Loader2 size={28} color="#538A22" style={{ animation: 'spin 1s linear infinite' }} />
@@ -160,10 +172,18 @@ export default function InterpretPage() {
               </button>
             ))}
             {roadmap ? (
-              <button onClick={refreshPlan} disabled={loading}
-                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 14px', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', fontSize: 13, cursor: loading ? 'not-allowed' : 'pointer', color: '#6b7280', opacity: loading ? 0.7 : 1 }}>
-                {loading ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : '↺'} {loading ? 'Refreshing...' : 'Refresh plan'}
-              </button>
+              <>
+                <button onClick={refreshPlan} disabled={loading}
+                  title="Update this same roadmap's content in place — same link, patient sees it refresh next time they open it"
+                  style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 14px', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', fontSize: 13, cursor: loading ? 'not-allowed' : 'pointer', color: '#6b7280', opacity: loading ? 0.7 : 1 }}>
+                  {loading ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : '↺'} {loading ? 'Refreshing...' : 'Refresh plan'}
+                </button>
+                <button onClick={regeneratePlan} disabled={loading}
+                  title="Create a brand new roadmap with a new link — use this when the plan's length itself needs to change (e.g. 3 months → 6 months)"
+                  style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 14px', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', fontSize: 13, cursor: loading ? 'not-allowed' : 'pointer', color: '#6b7280', opacity: loading ? 0.7 : 1 }}>
+                  {loading ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Wand2 size={14} />} Regenerate
+                </button>
+              </>
             ) : (
               <button onClick={generateRoadmap} disabled={loading}
                 style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 20px', background: '#538A22', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.8 : 1 }}>
@@ -203,7 +223,7 @@ export default function InterpretPage() {
               💡 This is exactly what your patient will see. Edit anything below, click <strong>Save changes</strong>, then use <strong>Preview as patient</strong> to copy the dashboard link and send it over.
             </div>
           </div>
-          <DashboardClient roadmapId={roadmap.id} patientId={patientId} data={guideData} initialCheckins={[]} editable />
+          <DashboardClient roadmapId={roadmap.id} patientId={patientId} data={guideData} initialCheckins={[]} editable duration={duration} />
         </div>
       )}
     </div>

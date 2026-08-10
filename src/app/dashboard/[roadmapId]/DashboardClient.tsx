@@ -1,6 +1,6 @@
 'use client'
 import { useState, useMemo, useEffect, Fragment, type ReactNode } from 'react'
-import { CheckCircle2, Circle, MapPin, Utensils, Pill, ShoppingCart, HeartPulse, HelpCircle, Phone, X, ChefHat, Download, Sparkles, Star, Save, Check, Loader2, ExternalLink, Flame, CalendarCheck, Target, TrendingUp, ChevronDown, ChevronRight, Video, MessageCircle, Users, Activity, Stethoscope, Plus, Trash2, Eye, EyeOff, type LucideIcon } from 'lucide-react'
+import { CheckCircle2, Circle, MapPin, Utensils, Pill, ShoppingCart, HeartPulse, HelpCircle, Phone, X, ChefHat, Download, Sparkles, Star, Save, Check, Loader2, ExternalLink, Flame, CalendarCheck, Target, TrendingUp, ChevronDown, ChevronRight, Video, MessageCircle, Users, Activity, Stethoscope, Plus, Trash2, Eye, EyeOff, Moon, Droplet, Brain, Sun, Footprints, Smartphone, Link as LinkIcon, type LucideIcon } from 'lucide-react'
 import { reshapeRoadmapIntoMonths, type WeeklyPlan } from '@/lib/pdf/reshapeRoadmap'
 import { parseNutritionistGuidelines } from '@/lib/pdf/parseNutritionistGuidelines'
 import { matchGuideImageDistinct } from '@/lib/pdf/matchGuideImage'
@@ -9,7 +9,7 @@ import { curatedSlotIds as sharedCuratedSlotIds, getSlotRecipes as sharedGetSlot
 import type { GuideData, DayMealSlot } from '@/lib/pdf/ClientGuideDocument'
 import { splitRecipeLines } from '@/lib/recipeText'
 import { renderMarkdownBold } from '@/lib/renderMarkdownBold'
-import { FOOD_PLATES, GROCERY_CATEGORIES, type MealType } from '@/lib/foodPlates'
+import { GROCERY_CATEGORIES } from '@/lib/foodPlates'
 import { buildGroceryList, type GroceryCategory } from '@/lib/groceryList'
 
 // Every color used anywhere in this file is one of these 10 tokens — so
@@ -57,13 +57,26 @@ const PALETTE_LIST: { id: string; label: string }[] = [
 // One color per food-group slot in a meal plate — cycled by index, matches
 // across the wheel diagram and its pill chips so a category reads the same
 // color in both places.
-const CATEGORY_COLORS = ['#C1483D', '#D98A2B', '#8A7B1F', '#3E7CB1']
 
 type Checkin = { week_number: number; action_index: number; checkin_date: string }
 
 const cardStyle = { background: C.paper, border: `1px solid ${C.rule}`, borderRadius: 14, padding: '20px 22px', marginBottom: 18 }
 const sectionTitleStyle = { display: 'flex', alignItems: 'center', gap: 9, fontSize: 17, fontWeight: 700, color: C.ink, marginBottom: 14 }
 const bulletStyle = { fontSize: 13.5, color: C.ink, lineHeight: 1.6, margin: '0 0 8px' }
+
+const LIFESTYLE_ICON_RULES: [RegExp, LucideIcon][] = [
+  [/\b(sleep|bedtime|wind[- ]down|rest)\b/i, Moon],
+  [/\b(water|hydrat|fluid)\b/i, Droplet],
+  [/\b(walk|step|exercise|movement|activity|stretch|workout)\b/i, Footprints],
+  [/\b(stress|cortisol|relax|breath|meditat|mindful|anxiety)\b/i, Brain],
+  [/\b(meal|eat|food|breakfast|lunch|dinner|snack|diet|protein|fiber|sugar)\b/i, Utensils],
+  [/\b(screen|phone|device|scroll)\b/i, Smartphone],
+  [/\b(sun|morning|light|wake)\b/i, Sun],
+]
+function iconForBullet(text: string): LucideIcon {
+  for (const [pattern, Icon] of LIFESTYLE_ICON_RULES) if (pattern.test(text)) return Icon
+  return HeartPulse
+}
 const editInputStyle = {
   width: '100%', padding: '9px 11px', borderRadius: 8, border: `1px solid ${C.rule}`,
   fontSize: 13.5, color: C.ink, fontFamily: 'inherit', background: '#fff', boxSizing: 'border-box' as const,
@@ -180,37 +193,6 @@ const TOC_ITEMS: { label: string; id: string }[] = [
 // sections need enough scroll-margin to clear both when jumped to, or the
 // section title lands hidden underneath them.
 const SECTION_SCROLL_MARGIN = 112
-
-function polarToCartesian(cx: number, cy: number, r: number, angleDeg: number) {
-  const a = ((angleDeg - 90) * Math.PI) / 180
-  return { x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) }
-}
-function describeSlice(cx: number, cy: number, r: number, startAngle: number, endAngle: number) {
-  const start = polarToCartesian(cx, cy, r, endAngle)
-  const end = polarToCartesian(cx, cy, r, startAngle)
-  const largeArc = endAngle - startAngle <= 180 ? 0 : 1
-  return `M ${cx} ${cy} L ${start.x} ${start.y} A ${r} ${r} 0 ${largeArc} 0 ${end.x} ${end.y} Z`
-}
-
-// A simple equal-slice wheel (not proportional to the actual ratios — those
-// are printed as text alongside it) that visually anchors "this meal = these
-// food groups, in one glance," matching the plate-diagram style coaches asked
-// for as more engaging than a plain bulleted list.
-function MealWheel({ categories, label }: { categories: string[]; label: string }) {
-  const cx = 100, cy = 100, r = 90
-  const n = categories.length
-  return (
-    <svg width={200} height={200} viewBox="0 0 200 200" style={{ flexShrink: 0 }}>
-      {categories.map((cat, i) => (
-        <path key={cat} d={describeSlice(cx, cy, r, (360 / n) * i, (360 / n) * (i + 1))} fill={CATEGORY_COLORS[i % CATEGORY_COLORS.length]} />
-      ))}
-      <circle cx={cx} cy={cy} r={38} fill={C.paper} stroke={C.rule} strokeWidth={1} />
-      <text x={cx} y={cy - 4} textAnchor="middle" fontSize={9} fontWeight={700} fill={C.ink}>POWER</text>
-      <text x={cx} y={cy + 9} textAnchor="middle" fontSize={9} fontWeight={700} fill={C.ink}>PLATE</text>
-      <text x={cx} y={cy + 22} textAnchor="middle" fontSize={8} fill={C.muted}>{label}</text>
-    </svg>
-  )
-}
 
 const factRow = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '9px 0', borderBottom: `1px solid ${C.rule}`, fontSize: 12.5 }
 // Purely decorative, cycled by index — not tied to any specific ingredient's
@@ -827,15 +809,15 @@ initGoalsExport();
 `
 }
 
-export default function DashboardClient({ roadmapId, patientId, data, initialCheckins, editable = false }: {
+export default function DashboardClient({ roadmapId, patientId, data, initialCheckins, editable = false, duration }: {
   roadmapId: string
   patientId?: string
   data: GuideData
   initialCheckins: Checkin[]
   editable?: boolean
+  duration?: number // coach's currently-selected plan length (in months) from the interpret page above this editor — only used to auto-suggest the Week template when it's set to 1 Week
 }) {
   const [checkins, setCheckins] = useState<Checkin[]>(initialCheckins)
-  const [activeMeal, setActiveMeal] = useState<MealType>('breakfast')
   const [openRecipeId, setOpenRecipeId] = useState<string | null>(null)
   const [openMonth, setOpenMonth] = useState<number | null>(null)
   const [openWeek, setOpenWeek] = useState<number | null>(null)
@@ -869,8 +851,17 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
   const [recipeSearch, setRecipeSearch] = useState<Partial<Record<DayMealSlot, string>>>({})
   const [theme, setTheme] = useState(data.theme && PALETTES[data.theme] ? data.theme : 'classic')
   const [template, setTemplate] = useState(
-    ['almanac', 'pulse', 'onyx'].includes(data.template) ? data.template : 'classic'
+    ['almanac', 'pulse', 'onyx', 'week'].includes(data.template) ? data.template : 'classic'
   )
+  // Picking "1 Week" duration up on the interpret page auto-suggests the
+  // Week template down here (it's the only template built for a single
+  // week — every other one assumes month/quarter structure) — still just a
+  // suggestion, a coach can pick a different template right after without
+  // it snapping back, since this only re-fires when `duration` itself changes.
+  useEffect(() => {
+    if (duration === 0.25) setTemplate('week')
+  }, [duration])
+  const [powerPoints, setPowerPoints] = useState(data.powerPoints || [])
   const [careServices, setCareServices] = useState(data.careServices || [])
   const [openCareService, setOpenCareService] = useState<number | null>(null)
   const [nextAppointment, setNextAppointment] = useState(data.nextAppointment || { date: '', time: '', mode: '' })
@@ -897,6 +888,40 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
     setEditWeeks((prev) => prev.map((w) => (w.week_number === weekNumber ? { ...w, ...patch } : w)))
   }
 
+  // Editing "Micro goals" above only ever touched the week-level fallback
+  // (`actions`) — but a plan with real day-by-day escalation (see
+  // WeeklyPlan.days) actually shows patients 7 different versions of each
+  // goal, one per day, which that textarea can't reach at all. This edits
+  // exactly one day's one goal at a time instead of forcing a coach to
+  // rewrite all 21 values in a textarea — collapsed behind a toggle per
+  // week (see below) so a coach who doesn't need to touch daily escalation
+  // never has to look at it.
+  const [openDayEditors, setOpenDayEditors] = useState<Set<number>>(new Set())
+  function toggleDayEditor(weekNumber: number) {
+    setOpenDayEditors((prev) => {
+      const next = new Set(prev)
+      if (next.has(weekNumber)) next.delete(weekNumber)
+      else next.add(weekNumber)
+      return next
+    })
+  }
+  // Which single day is currently being edited, per week — showing all 7
+  // days' text at once (even in a grid) either truncates every cell to
+  // nothing or turns into 7 full-width blocks; showing exactly one day's 3
+  // goals as real full-width text, switched with a day pill, avoids both.
+  const [dayEditorSelection, setDayEditorSelection] = useState<Record<number, number>>({})
+  function selectedDayIndex(weekNumber: number) {
+    return dayEditorSelection[weekNumber] ?? 0
+  }
+  function updateDayAction(weekNumber: number, dayIndex: number, actionIndex: number, value: string) {
+    setEditWeeks((prev) => prev.map((w) => {
+      if (w.week_number !== weekNumber) return w
+      const baseDays = w.days && w.days.length === DAY_LABELS.length ? w.days : DAY_LABELS.map(() => [...(w.actions || [])])
+      const nextDays = baseDays.map((d, di) => (di === dayIndex ? d.map((a, ai) => (ai === actionIndex ? value : a)) : d))
+      return { ...w, days: nextDays }
+    }))
+  }
+
   async function save() {
     if (!patientId) return
     setSaving(true)
@@ -907,7 +932,7 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
           method: 'PATCH', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             lifestyle_guidelines: lifestyleText,
-            guide_overrides: { goal_label: goalLabel, why_reflection: whyReflection, coach_quote: coachQuote, manual_recipes: manualRecipes, weekly_manual_recipes: weeklyManualRecipes, theme, template, care_services: careServices, next_appointment: nextAppointment, care_team: careTeam, hidden_sections: hiddenSections },
+            guide_overrides: { goal_label: goalLabel, why_reflection: whyReflection, coach_quote: coachQuote, manual_recipes: manualRecipes, weekly_manual_recipes: weeklyManualRecipes, theme, template, care_services: careServices, next_appointment: nextAppointment, care_team: careTeam, hidden_sections: hiddenSections, power_points: powerPoints },
             weekly_schedule: editWeeks.map((w) => ({ ...w, actions: (w.actions || []).map((a) => a.trim()).filter(Boolean) })),
           }),
         }),
@@ -1559,7 +1584,7 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
               </div>
               <div style={{ ...editLabelStyle, marginTop: 14 }}>Template</div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                {[{ id: 'classic', label: 'Classic' }, { id: 'almanac', label: 'Almanac' }, { id: 'pulse', label: 'Pulse' }, { id: 'onyx', label: 'Onyx' }].map((t) => (
+                {[{ id: 'classic', label: 'Classic' }, { id: 'almanac', label: 'Almanac' }, { id: 'pulse', label: 'Pulse' }, { id: 'onyx', label: 'Onyx' }, { id: 'week', label: 'Week' }].map((t) => (
                   <button key={t.id} onClick={() => setTemplate(t.id)}
                     style={{
                       padding: '6px 14px', borderRadius: 20, cursor: 'pointer', fontSize: 12, fontWeight: 700,
@@ -1756,20 +1781,18 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
             {editable && <SectionToggle hidden={isHidden('howto')} onToggle={() => toggleSection('howto')} />}
             <div style={sectionTitleStyle}>How to use your plan</div>
             <p style={{ ...bulletStyle, marginBottom: 16, fontWeight: 700, color: C.accent }}>Follow → Track → Adjust</p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 14, marginBottom: 16 }}>
               {[
                 { icon: MapPin, title: 'This week', text: 'Check your goals and meals for the week.' },
                 { icon: CheckCircle2, title: 'Each day', text: 'Tick off what you complete.' },
                 { icon: HelpCircle, title: 'Need help?', text: 'Message ' + coachFirst + ' if something doesn’t work for you.' },
               ].map(({ icon: Icon, title, text }) => (
-                <div key={title} style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-                  <div style={{ width: 32, height: 32, borderRadius: 9, background: C.accentSoft, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <div key={title}>
+                  <div style={{ width: 32, height: 32, borderRadius: 9, background: C.accentSoft, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 8 }}>
                     <Icon size={16} color={C.accent} />
                   </div>
-                  <div>
-                    <div style={{ fontSize: 13.5, fontWeight: 700, color: C.ink, marginBottom: 2 }}>{title}</div>
-                    <div style={{ fontSize: 12.5, color: C.inkSoft, lineHeight: 1.55 }}>{text}</div>
-                  </div>
+                  <div style={{ fontSize: 13.5, fontWeight: 700, color: C.ink, marginBottom: 2 }}>{title}</div>
+                  <div style={{ fontSize: 12.5, color: C.inkSoft, lineHeight: 1.55 }}>{text}</div>
                 </div>
               ))}
             </div>
@@ -1903,6 +1926,45 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
                           <div style={editLabelStyle}>Success looks like</div>
                           <input style={editInputStyle} value={w.milestone || ''} onChange={(e) => updateWeek(w.week_number, { milestone: e.target.value })} />
                         </div>
+                        {w.days && w.days.length > 0 && (
+                          <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px dashed ${C.rule}` }}>
+                            <button type="button" onClick={() => toggleDayEditor(w.week_number)}
+                              style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 11, fontWeight: 700, color: C.accent }}>
+                              {openDayEditors.has(w.week_number) ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                              Edit day-by-day (Sun–Sat)
+                            </button>
+                            {openDayEditors.has(w.week_number) && (() => {
+                              const dayIndex = selectedDayIndex(w.week_number)
+                              return (
+                                <div style={{ marginTop: 8 }}>
+                                  <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 10 }}>
+                                    {DAY_LABELS.map((day, di) => (
+                                      <button key={day} type="button" onClick={() => setDayEditorSelection((prev) => ({ ...prev, [w.week_number]: di }))}
+                                        style={{
+                                          padding: '5px 11px', borderRadius: 14, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                                          border: `1px solid ${dayIndex === di ? C.accent : C.rule}`,
+                                          background: dayIndex === di ? C.accentSoft : '#fff', color: dayIndex === di ? C.accent : C.muted,
+                                        }}>
+                                        {day.slice(0, 3)}
+                                      </button>
+                                    ))}
+                                  </div>
+                                  {(w.actions || []).map((_, actionIndex) => (
+                                    <div key={actionIndex} style={{ marginBottom: 8 }}>
+                                      <div style={{ fontSize: 10.5, color: C.muted, fontWeight: 700, marginBottom: 3 }}>Goal {actionIndex + 1} · {DAY_LABELS[dayIndex]}</div>
+                                      <textarea
+                                        value={w.days?.[dayIndex]?.[actionIndex] ?? ''}
+                                        onChange={(e) => updateDayAction(w.week_number, dayIndex, actionIndex, e.target.value)}
+                                        rows={2}
+                                        style={{ width: '100%', fontSize: 12.5, padding: '7px 9px', border: `1px solid ${C.rule}`, borderRadius: 7, fontFamily: 'inherit', resize: 'vertical' as const }}
+                                      />
+                                    </div>
+                                  ))}
+                                </div>
+                              )
+                            })()}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -1922,83 +1984,79 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
                   value={lifestyleText} onChange={(e) => setLifestyleText(e.target.value)}
                   placeholder="• One lifestyle change per line, tied to something specific in their case" />
               ) : (
-                lifestyleBullets.map((b, i) => <p key={i} style={bulletStyle}>• {renderMarkdownBold(b)}</p>)
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10 }}>
+                  {lifestyleBullets.map((b, i) => {
+                    const Icon = iconForBullet(b)
+                    return (
+                      <div key={i} style={{ display: 'flex', gap: 12, alignItems: 'center', border: `1px solid ${C.rule}`, borderRadius: 10, padding: '12px 14px' }}>
+                        <div style={{ width: 30, height: 30, borderRadius: 8, background: C.accentSoft, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                          <Icon size={14} color={C.accent} />
+                        </div>
+                        <p style={{ ...bulletStyle, margin: 0 }}>{renderMarkdownBold(b)}</p>
+                      </div>
+                    )
+                  })}
+                </div>
               )}
             </div>
           )}
 
-          {/* Nutrition guidelines — Power Plates, tabbed by meal (also covers
-              "This week's recipes" — the PDF's separate recipe pages live
-              inside each meal tab here instead) */}
+          {/* Power points — coach-pasted links (videos, articles, tools) each
+              with a short note. Replaces the old static food-plate
+              breakdown; recipes are still browsable per-week inside "Your
+              roadmap" below, so nothing recipe-related is lost. */}
           <div id="nutrition" {...hiddenAttrs('nutrition')} style={{ ...cardStyle, scrollMarginTop: SECTION_SCROLL_MARGIN, ...hiddenStyle('nutrition') }}>
             {editable && <SectionToggle hidden={isHidden('nutrition')} onToggle={() => toggleSection('nutrition')} />}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 6 }}>
-              <div style={sectionTitleStyle}><Utensils size={18} color={C.accent} /> Your power plates</div>
-              <div style={{ display: 'flex', gap: 6 }}>
-                {(['breakfast', 'lunch', 'dinner'] as MealType[]).map((meal) => (
-                  <button key={meal} data-meal-tab={meal} onClick={() => setActiveMeal(meal)}
-                    style={{
-                      padding: '8px 16px', borderRadius: 20, border: activeMeal === meal ? 'none' : `1px solid ${C.rule}`,
-                      background: activeMeal === meal ? C.greenDeep : C.paper, color: activeMeal === meal ? '#fff' : C.ink,
-                      fontSize: 12.5, fontWeight: 700, cursor: 'pointer', textTransform: 'capitalize',
-                    }}>
-                    {meal}
-                  </button>
+            <div style={sectionTitleStyle}><LinkIcon size={18} color={C.accent} /> Your power points</div>
+            {editable ? (
+              <>
+                <p style={{ ...bulletStyle, color: C.muted, marginBottom: 14 }}>
+                  Paste a link (video, article, tool, anything worth sharing) and write a few lines on why it matters for this patient.
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginBottom: 14 }}>
+                  {powerPoints.map((pp, i) => (
+                    <div key={i} style={{ border: `1px solid ${C.rule}`, borderRadius: 10, padding: '12px 14px', background: C.bg }}>
+                      <div style={{ marginBottom: 8 }}>
+                        <div style={editLabelStyle}>Link</div>
+                        <input style={editInputStyle} value={pp.url} placeholder="https://..." onChange={(e) => {
+                          const next = [...powerPoints]; next[i] = { ...pp, url: e.target.value }; setPowerPoints(next)
+                        }} />
+                      </div>
+                      <div style={{ marginBottom: 8 }}>
+                        <div style={editLabelStyle}>A few lines about it</div>
+                        <textarea style={{ ...editInputStyle, resize: 'vertical' as const }} rows={2} value={pp.note}
+                          onChange={(e) => { const next = [...powerPoints]; next[i] = { ...pp, note: e.target.value }; setPowerPoints(next) }} />
+                      </div>
+                      <button onClick={() => setPowerPoints(powerPoints.filter((_, idx) => idx !== i))}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', color: '#b4462f', fontSize: 12, fontWeight: 700, padding: 0 }}>
+                        <Trash2 size={13} /> Remove
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <button onClick={() => setPowerPoints([...powerPoints, { url: '', note: '' }])}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, border: `1px solid ${C.rule}`, background: C.paper, color: C.ink, fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>
+                  <Plus size={14} /> Add power point
+                </button>
+              </>
+            ) : powerPoints.filter((pp) => pp.url).length > 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {powerPoints.filter((pp) => pp.url).map((pp, i) => (
+                  <a key={i} href={pp.url} target="_blank" rel="noopener noreferrer"
+                    style={{ display: 'flex', alignItems: 'flex-start', gap: 12, textDecoration: 'none', padding: '12px 14px', borderRadius: 12, border: `1px solid ${C.rule}`, background: C.bg }}>
+                    <div style={{ width: 34, height: 34, borderRadius: 9, background: C.accentSoft, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      <LinkIcon size={16} color={C.accent} />
+                    </div>
+                    <div style={{ minWidth: 0 }}>
+                      {pp.note && <div style={{ fontSize: 13, color: C.ink, lineHeight: 1.5, marginBottom: 3 }}>{renderMarkdownBold(pp.note)}</div>}
+                      <div style={{ fontSize: 11.5, color: C.accent, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pp.url}</div>
+                    </div>
+                  </a>
                 ))}
               </div>
-            </div>
-            {(['breakfast', 'lunch', 'dinner'] as MealType[]).map((meal) => {
-              const plate = FOOD_PLATES[meal]
-              const recipes = mealMatches[meal]
-              return (
-                <div key={meal} id={`pp-${meal}`} style={{ display: activeMeal === meal ? '' : 'none' }}>
-                  <div style={{ fontSize: 12, color: C.muted, marginBottom: 16 }}>{plate.ratios}</div>
-                  <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-                    <MealWheel categories={plate.columns.map((c) => c.head)} label={meal} />
-                    <div style={{ flex: '1 1 300px', display: 'flex', flexDirection: 'column', gap: 12 }}>
-                      {plate.columns.map((col, i) => (
-                        <div key={col.head}>
-                          <div style={{ fontSize: 10.5, fontWeight: 700, color: CATEGORY_COLORS[i % CATEGORY_COLORS.length], textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 6 }}>{col.head}</div>
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                            {col.items.map((item) => (
-                              <span key={item} style={{ fontSize: 12, color: C.ink, background: `${CATEGORY_COLORS[i % CATEGORY_COLORS.length]}22`, border: `1px solid ${CATEGORY_COLORS[i % CATEGORY_COLORS.length]}55`, borderRadius: 14, padding: '4px 11px' }}>{item}</span>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  {recipes.length > 0 ? (
-                    <div style={{ marginTop: 20, paddingTop: 16, borderTop: `1px solid ${C.rule}` }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 10 }}>Recipes for {meal}, picked for your plan</div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                        {recipes.map((m) => {
-                          const img = mealImages.get(m.recipe.id)
-                          return (
-                            <button key={m.recipe.id} data-recipe-trigger={m.recipe.id} onClick={() => setOpenRecipeId(m.recipe.id)}
-                              style={{ display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left', padding: '10px 12px', borderRadius: 12, border: `1px solid ${C.rule}`, background: C.bg, cursor: 'pointer' }}>
-                              {img ? (
-                                <img src={img} alt={m.recipe.name} style={{ width: 52, height: 52, borderRadius: 8, objectFit: 'cover', flexShrink: 0 }} />
-                              ) : (
-                                <div style={{ width: 52, height: 52, borderRadius: 8, background: C.accentSoft, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><ChefHat size={20} color={C.accent} /></div>
-                              )}
-                              <div style={{ minWidth: 0 }}>
-                                <div style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>{m.recipe.name}{m.recipe.protein_label ? ` · ${m.recipe.protein_label}` : ''}</div>
-                                <div style={{ fontSize: 11.5, color: C.muted, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.why}</div>
-                              </div>
-                            </button>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  ) : (
-                    <div style={{ marginTop: 20, paddingTop: 16, borderTop: `1px solid ${C.rule}`, fontSize: 12.5, color: C.muted }}>
-                      Nothing in the recipe bank is tagged to match your specific concern or diet notes yet for {meal}, {coachFirst} will hand you a recipe fresh for this week instead.
-                    </div>
-                  )}
-                </div>
-              )
-            })}
+            ) : (
+              <div style={{ fontSize: 13.5, color: C.muted }}>Not filled in yet, {coachFirst} will add a few useful links here.</div>
+            )}
           </div>
 
           {/* Superfood of the week */}

@@ -55,6 +55,8 @@ export type GuideData = {
   nextAppointment: { date: string; time: string; mode: string } // shown in "When to reach us" — coach-entered, blank fields just don't render rather than showing a placeholder
   careTeam: { name: string; role: string; intro: string; date: string; time: string; mode: string }[] // "Your care team" — other providers (doctor, therapist, naturopath, etc.) beyond the primary coach, each with their own intro + appointment. Empty by default.
   hiddenSections: string[] // section keys (GUIDE_SECTIONS keys / dashboard section ids) the coach has switched off for this patient — omitted everywhere: live dashboard, PDF, offline export
+  dailyMetrics: Record<string, { water?: number; energy?: number; mood?: string }> // Week template's "Daily Health Check-in" water/energy/mood, keyed by real ISO date — separate from roadmap_checkins (which is boolean goal check-offs only), stored on the roadmap row itself since it's just a few small numbers/text per day
+  powerPoints: { url: string; note: string }[] // "Your Power Points" — coach-pasted links (videos, articles, tools) each with a short note, replaces the old static food-plate breakdown section
 }
 
 const cover = StyleSheet.create({
