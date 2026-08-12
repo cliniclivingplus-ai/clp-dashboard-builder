@@ -3,8 +3,9 @@ import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { renderMarkdownBold } from '@/lib/renderMarkdownBold'
-import { ArrowLeft, Plus, Pencil, FileText, StickyNote, LayoutDashboard, Calendar, ChevronRight, Microscope, Trash2, X, Link2, Check } from 'lucide-react'
+import { ArrowLeft, Plus, Pencil, FileText, StickyNote, LayoutDashboard, Calendar, ChevronRight, Microscope, Trash2, X, Link2, Check, Dna } from 'lucide-react'
 import ReportsTab from '@/components/ReportsTab'
+import MicrobiomeLinkTab from '@/components/MicrobiomeLinkTab'
 
 // ── Design tokens ────────────────────────────────────────────────────
 const C = {
@@ -56,6 +57,7 @@ const TABS = [
   { key: 'reports', label: 'Reports', icon: Microscope },
   { key: 'notes', label: 'Notes', icon: StickyNote },
   { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { key: 'microbiome', label: 'MicrobiomeRX', icon: Dna },
 ] as const
 type TabKey = (typeof TABS)[number]['key']
 
@@ -241,6 +243,7 @@ export default function PatientPage() {
         {tab === 'reports' && <ReportsTab patientId={patientId} />}
         {tab === 'notes' && <NotesTab sessions={sessions} />}
         {tab === 'dashboard' && <DashboardTab roadmaps={roadmaps} />}
+        {tab === 'microbiome' && <MicrobiomeLinkTab patientId={patientId} />}
       </div>
 
       {showDelete && (
