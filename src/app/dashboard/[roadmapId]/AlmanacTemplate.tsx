@@ -251,81 +251,6 @@ function StreakFlame({ lit, pop }: { lit: boolean; pop: boolean }) {
   )
 }
 
-// Smooth curve through arbitrary points (Catmull-Rom -> cubic Bezier) — lets
-// the roadmap trail below wiggle nicely for any month count, not just 3.
-function buildTrailPath(points: { x: number; y: number }[]): string {
-  if (points.length < 2) return ''
-  let d = `M ${points[0].x} ${points[0].y}`
-  for (let i = 0; i < points.length - 1; i++) {
-    const p0 = points[i === 0 ? i : i - 1]
-    const p1 = points[i]
-    const p2 = points[i + 1]
-    const p3 = points[i + 2 < points.length ? i + 2 : i + 1]
-    const cp1x = p1.x + (p2.x - p0.x) / 6
-    const cp1y = p1.y + (p2.y - p0.y) / 6
-    const cp2x = p2.x - (p3.x - p1.x) / 6
-    const cp2y = p2.y - (p3.y - p1.y) / 6
-    d += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p2.x} ${p2.y}`
-  }
-  return d
-}
-
-// A winding trail above "Your roadmap"'s month pills — one flag per month,
-// filled in as far as the patient's real average completion across months
-// (the same pct "Track your progress" already computes, never a fabricated
-// number). Clicking a flag opens that month, same as clicking its pill —
-// it shares the exact `data-month-trigger` hook the pill row already uses,
-// so the shared offline-export script wires it up for free.
-function RoadmapTrail({ monthStats, onSelect }: { monthStats: { monthNumber: number; monthLabel: string; pct: number }[]; onSelect: (n: number) => void }) {
-  const n = monthStats.length
-  const pathRef = useRef<SVGPathElement | null>(null)
-  const [pathLen, setPathLen] = useState(400)
-
-  const points = useMemo(
-    () => monthStats.map((_, i) => ({
-      x: n > 1 ? 30 + (i * (290 - 30)) / (n - 1) : 160,
-      y: n > 1 ? 70 + 30 * Math.cos((Math.PI * i) / (n - 1)) : 70,
-    })),
-    [monthStats, n]
-  )
-  const d = useMemo(() => buildTrailPath(points), [points])
-
-  useEffect(() => {
-    if (pathRef.current) setPathLen(pathRef.current.getTotalLength())
-  }, [d])
-
-  if (n < 2) return null
-
-  const avgPct = monthStats.reduce((s, m) => s + m.pct, 0) / (n * 100)
-  const firstIncompleteIdx = monthStats.findIndex((m) => m.pct < 100)
-  const activeIdx = firstIncompleteIdx === -1 ? n - 1 : firstIncompleteIdx
-
-  return (
-    <svg data-trail-svg width="100%" height="130" viewBox="0 0 320 140" style={{ marginTop: 8, display: 'block' }}>
-      <path data-trail-bg d={d} stroke="rgba(243,236,218,0.25)" strokeWidth={4} fill="none" strokeLinecap="round" />
-      <path ref={pathRef} data-trail-fill d={d} stroke={PALETTE.gold1} strokeWidth={4} fill="none" strokeLinecap="round"
-        strokeDasharray={pathLen}
-        style={{ strokeDashoffset: pathLen - pathLen * avgPct, transition: 'stroke-dashoffset 0.8s cubic-bezier(.2,.8,.3,1)' }} />
-      {points.map((p, i) => {
-        const m = monthStats[i]
-        const done = m.pct >= 100
-        const isActive = i === activeIdx
-        const fill = done ? PALETTE.gold1 : isActive ? PALETTE.berry : 'rgba(243,236,218,0.10)'
-        const textColor = done ? PALETTE.ink : isActive ? PALETTE.cream : 'rgba(243,236,218,0.6)'
-        return (
-          <g key={m.monthNumber} data-month-trigger={m.monthNumber} data-trail-flag={m.monthNumber}
-            data-done-color={PALETTE.gold1} data-active-color={PALETTE.berry} data-upcoming-color="rgba(243,236,218,0.10)"
-            onClick={() => onSelect(m.monthNumber)} transform={`translate(${p.x},${p.y})`}
-            style={{ cursor: 'pointer' }}>
-            <circle r={16} fill={fill} stroke="rgba(243,236,218,0.3)" strokeWidth={1.5} style={{ transition: 'fill 0.3s ease' }} />
-            <text x={0} y={4} textAnchor="middle" fontSize={11} fontWeight={700} fill={textColor} style={{ pointerEvents: 'none' }}>{i + 1}</text>
-          </g>
-        )
-      })}
-    </svg>
-  )
-}
-
 export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { roadmapId: string; data: GuideData; initialCheckins: Checkin[] }) {
   const firstName = data.patient.full_name?.split(' ')[0] || 'there'
   const coachFirst = data.coach?.full_name?.split(' ')[0] || 'your coach'
@@ -804,8 +729,6 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
           <div style={{ maxWidth: 920, margin: '0 auto' }}>
             <Eyebrow dark>Month by month</Eyebrow>
             <SecTitle dark icon={<MapPin size={26} color={PALETTE.cream} />}>Your Roadmap</SecTitle>
-
-            <RoadmapTrail monthStats={progress.monthStats} onSelect={(n) => { const next = openMonth === n ? null : n; setOpenMonth(next); setOpenWeek(null); setOpenDay(null); setOpenSlot(null); setOpenRecipeId(null) }} />
 
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 24 }}>
               {months.map((m) => (
