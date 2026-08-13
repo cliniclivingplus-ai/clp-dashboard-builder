@@ -11,6 +11,7 @@ import { splitRecipeLines } from '@/lib/recipeText'
 import { renderMarkdownBold } from '@/lib/renderMarkdownBold'
 import { GROCERY_CATEGORIES } from '@/lib/foodPlates'
 import { buildGroceryList, type GroceryCategory } from '@/lib/groceryList'
+import AiEditButton from '@/components/AiEditButton'
 
 // Every color used anywhere in this file is one of these 10 tokens — so
 // theming is just swapping which literal hex values `--clp-*` resolves to
@@ -839,6 +840,10 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
   // `data` untouched, so using them everywhere below (instead of branching
   // every render on `editable`) is safe and keeps one rendering codepath.
   const [coaches, setCoaches] = useState<{ id: string; full_name: string }[]>([])
+  // Shared grounding context for every AiEditButton on this page — never
+  // more than name/concern/goal, so the AI edit endpoint has just enough
+  // to stay relevant without being handed anything it could over-invent from.
+  const aiContext = `Patient: ${data.patient.full_name}. Primary concern: ${data.patient.primary_concern || 'not specified'}. Plan goal: ${data.goalLabel}.`
   const [goalLabel, setGoalLabel] = useState(data.goalLabel)
   const [whyReflection, setWhyReflection] = useState(data.whyReflection)
   const [coachQuote, setCoachQuote] = useState(data.coachQuote)
@@ -1659,6 +1664,9 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
                       {coaches.map((c) => <option key={c.id} value={c.id}>{c.full_name}</option>)}
                     </select>
                     <div style={{ fontSize: 11, color: C.muted, margin: '5px 0 10px' }}>Photo, designation and bio come from the coach&apos;s own profile, updates after you save.</div>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 5 }}>
+                      <AiEditButton roadmapId={roadmapId} kind="text" value={coachQuote} context={aiContext} onApply={setCoachQuote} />
+                    </div>
                     <textarea style={{ ...editInputStyle, resize: 'vertical' as const, lineHeight: 1.5, fontStyle: 'italic' }} rows={2}
                       value={coachQuote} onChange={(e) => setCoachQuote(e.target.value)}
                       placeholder={`Personal callback quote, e.g. "${firstName}, I remember what you said about..." or leave blank.`} />
@@ -1696,6 +1704,10 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginBottom: 14 }}>
                     {careTeam.map((member, i) => (
                       <div key={i} style={{ border: `1px solid ${C.rule}`, borderRadius: 10, padding: '12px 14px', background: C.bg }}>
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 6 }}>
+                          <AiEditButton roadmapId={roadmapId} kind="care_team_member" value={member} context={aiContext}
+                            onApply={(v) => { const next = [...careTeam]; next[i] = v; setCareTeam(next) }} />
+                        </div>
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10, marginBottom: 8 }}>
                           <div>
                             <div style={editLabelStyle}>Name</div>
@@ -1797,7 +1809,10 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
               ))}
             </div>
             <div id="why" style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${C.rule}`, scrollMarginTop: SECTION_SCROLL_MARGIN }}>
-              <div style={{ ...sectionTitleStyle, fontSize: 15, marginBottom: 10 }}>Your why</div>
+              <div style={{ ...sectionTitleStyle, fontSize: 15, marginBottom: 10, justifyContent: 'space-between' }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 9 }}>Your why</span>
+                {editable && <AiEditButton roadmapId={roadmapId} kind="text" value={whyReflection} context={aiContext} onApply={setWhyReflection} />}
+              </div>
               {editable ? (
                 <textarea style={{ ...editInputStyle, resize: 'vertical' as const, lineHeight: 1.5 }} rows={3}
                   value={whyReflection} onChange={(e) => setWhyReflection(e.target.value)}
@@ -1912,7 +1927,13 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
                     <div style={{ fontSize: 14, fontWeight: 700, color: C.accent, marginBottom: 10 }}>{m.monthLabel} · Weeks {m.weekStart}–{m.weekEnd}</div>
                     {m.weeks.map((w: WeeklyPlan) => (
                       <div key={w.week_number} style={{ border: `1px solid ${C.rule}`, borderRadius: 10, padding: '12px 14px', marginBottom: 10, background: C.bg }}>
-                        <div style={{ fontSize: 11, fontWeight: 700, color: C.accent, marginBottom: 7 }}>Week {w.week_number}</div>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 7 }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: C.accent }}>Week {w.week_number}</div>
+                          <AiEditButton roadmapId={roadmapId} kind="week"
+                            value={{ focus_theme: w.focus_theme || '', cause: w.cause || '', actions: w.actions || [], milestone: w.milestone || '' }}
+                            context={aiContext}
+                            onApply={(v) => updateWeek(w.week_number, v)} />
+                        </div>
                         <div style={{ marginBottom: 7 }}>
                           <div style={editLabelStyle}>Focus / macro goal</div>
                           <input style={editInputStyle} value={w.focus_theme || ''} onChange={(e) => updateWeek(w.week_number, { focus_theme: e.target.value })} />
@@ -1977,7 +1998,10 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
           {(editable || lifestyleBullets.length > 0) && (
             <div id="lifestyle" {...hiddenAttrs('lifestyle')} style={{ ...cardStyle, scrollMarginTop: SECTION_SCROLL_MARGIN, ...hiddenStyle('lifestyle') }}>
               {editable && <SectionToggle hidden={isHidden('lifestyle')} onToggle={() => toggleSection('lifestyle')} />}
-              <div style={sectionTitleStyle}><HeartPulse size={18} color={C.accent} /> Lifestyle guidelines</div>
+              <div style={{ ...sectionTitleStyle, justifyContent: 'space-between' }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 9 }}><HeartPulse size={18} color={C.accent} /> Lifestyle guidelines</span>
+                {editable && <AiEditButton roadmapId={roadmapId} kind="text" value={lifestyleText} context={aiContext} onApply={setLifestyleText} />}
+              </div>
               {heroImage && <img src={heroImage.image_url} alt={heroImage.label} style={{ width: '100%', height: 180, objectFit: 'cover', borderRadius: 10, marginBottom: 14 }} />}
               {editable ? (
                 <textarea style={{ ...editInputStyle, resize: 'vertical' as const, lineHeight: 1.6 }} rows={6}
@@ -2016,6 +2040,10 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginBottom: 14 }}>
                   {powerPoints.map((pp, i) => (
                     <div key={i} style={{ border: `1px solid ${C.rule}`, borderRadius: 10, padding: '12px 14px', background: C.bg }}>
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 6 }}>
+                        <AiEditButton roadmapId={roadmapId} kind="power_point" value={pp} context={aiContext}
+                          onApply={(v) => { const next = [...powerPoints]; next[i] = v; setPowerPoints(next) }} />
+                      </div>
                       <div style={{ marginBottom: 8 }}>
                         <div style={editLabelStyle}>Link</div>
                         <input style={editInputStyle} value={pp.url} placeholder="https://..." onChange={(e) => {
@@ -2150,6 +2178,10 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginBottom: 14 }}>
                   {careServices.map((svc, i) => (
                     <div key={i} style={{ border: `1px solid ${C.rule}`, borderRadius: 10, padding: '12px 14px', background: C.bg }}>
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 6 }}>
+                        <AiEditButton roadmapId={roadmapId} kind="service" value={svc} context={aiContext}
+                          onApply={(v) => { const next = [...careServices]; next[i] = v; setCareServices(next) }} />
+                      </div>
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10, marginBottom: 8 }}>
                         <div>
                           <div style={editLabelStyle}>Icon</div>

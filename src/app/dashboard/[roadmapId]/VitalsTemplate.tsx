@@ -15,7 +15,7 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import {
   HeartPulse, Utensils, Pill, Phone, CalendarCheck, HelpCircle, ChefHat, MapPin, ChevronDown, ChevronRight, X, Download,
   CheckCircle2, Circle, Sparkles, Star, ShoppingCart, Video, MessageCircle, Activity, Stethoscope, Users, Target, TrendingUp,
-  Moon, Droplet, Brain, Sun, Footprints, Smartphone, Link as LinkIcon, Flame, Award, Quote,
+  Moon, Droplet, Brain, Sun, Footprints, Smartphone, Link as LinkIcon, Flame, Award,
   type LucideIcon,
 } from 'lucide-react'
 import type { GuideData, DayMealSlot } from '@/lib/pdf/ClientGuideDocument'
@@ -29,6 +29,7 @@ import { GROCERY_CATEGORIES } from '@/lib/foodPlates'
 import { buildGroceryList, type GroceryCategory } from '@/lib/groceryList'
 import { matchGuideImageDistinct } from '@/lib/pdf/matchGuideImage'
 import { buildInlineExportScript } from '@/lib/pdf/inlineExportScript'
+import { Ring, Wheel, Card, PullQuote, DEFAULT_WHEEL_COLORS as WHEEL_COLORS } from '@/lib/blocks/primitives'
 
 const DAY_MEAL_SLOTS: DayMealSlot[] = ['breakfast', 'lunch', 'dinner', 'snack', 'dessert']
 const SLOT_LABELS: Record<DayMealSlot, string> = { breakfast: 'Breakfast', lunch: 'Lunch', dinner: 'Dinner', snack: 'Snacks', dessert: 'Desserts' }
@@ -103,11 +104,6 @@ const V = {
   line: '#E5E9F0', accent: '#2563EB', accentSoft: '#EFF4FF', accentDeep: '#1E40AF',
   warn: '#DC2626', track: '#E5E9F0',
 }
-// A distinct hue per wedge on the functional-medicine wheel (months, or
-// track-progress months) — cosmetic only, cycles if there are more
-// segments than colors; never implies a clinical meaning per color.
-const WHEEL_COLORS = ['#2563EB', '#0EA5E9', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899', '#14B8A6', '#F97316']
-
 const FONT_LINK = 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap'
 
 const TOC_ITEMS: { label: string; id: string }[] = [
@@ -138,99 +134,6 @@ function SecTitle({ icon, children }: { icon: React.ReactNode; children: React.R
     </div>
   )
 }
-function Card({ id, hidden, children, style }: { id?: string; hidden?: boolean; children: React.ReactNode; style?: CSSProperties }) {
-  return (
-    <div id={id} style={{ background: V.card, border: `1px solid ${V.line}`, borderRadius: 20, padding: '1.75rem 1.9rem', marginBottom: 16, boxShadow: '0 1px 2px rgba(17,24,39,0.03)', ...(hidden ? { display: 'none' } : {}), ...style }}>
-      {children}
-    </div>
-  )
-}
-
-// A single circular stat ring — the hero adherence number and each stat
-// card's mini-ring both use this, always driven by a real 0-100 value.
-function Ring({ pct, size = 132, thickness = 12, color = V.accent, children }: { pct: number; size?: number; thickness?: number; color?: string; children?: React.ReactNode }) {
-  const r = (size - thickness) / 2
-  const c = 2 * Math.PI * r
-  const clamped = Math.max(0, Math.min(100, pct))
-  return (
-    <div style={{ position: 'relative', width: size, height: size, flexShrink: 0 }}>
-      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ transform: 'rotate(-90deg)' }}>
-        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={V.track} strokeWidth={thickness} />
-        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color} strokeWidth={thickness} strokeLinecap="round"
-          strokeDasharray={c} strokeDashoffset={c - (c * clamped) / 100} style={{ transition: 'stroke-dashoffset 0.7s cubic-bezier(.2,.8,.3,1)' }} />
-      </svg>
-      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{children}</div>
-    </div>
-  )
-}
-
-function polarToXY(cx: number, cy: number, r: number, angleDeg: number) {
-  const a = ((angleDeg - 90) * Math.PI) / 180
-  return { x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) }
-}
-function describeArc(cx: number, cy: number, r: number, startAngle: number, endAngle: number) {
-  const start = polarToXY(cx, cy, r, endAngle)
-  const end = polarToXY(cx, cy, r, startAngle)
-  const largeArc = endAngle - startAngle <= 180 ? 0 : 1
-  return `M ${start.x} ${start.y} A ${r} ${r} 0 ${largeArc} 0 ${end.x} ${end.y}`
-}
-function arcLength(r: number, startAngle: number, endAngle: number) {
-  return r * ((endAngle - startAngle) * Math.PI) / 180
-}
-
-// The "functional medicine wheel" — each segment is a real month (or, in
-// Track Your Progress, the same months again at a glance), sized equally
-// and filled clockwise by that month's real % of goals completed. Never a
-// fabricated metric — pct always comes from actual checkin data.
-function Wheel({ segments, size = 220, thickness = 16, selectedIndex, onSelect }: { segments: { label: string; pct: number }[]; size?: number; thickness?: number; selectedIndex?: number | null; onSelect?: (i: number) => void }) {
-  const n = segments.length
-  if (n === 0) return null
-  const gap = n > 1 ? 5 : 0
-  const slice = 360 / n
-  const r = (size - thickness) / 2
-  const cx = size / 2
-  const cy = size / 2
-  return (
-    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-      {segments.map((seg, i) => {
-        const start = i * slice + gap / 2
-        const end = (i + 1) * slice - gap / 2
-        const len = arcLength(r, start, end)
-        const pct = Math.max(0, Math.min(100, seg.pct))
-        const color = WHEEL_COLORS[i % WHEEL_COLORS.length]
-        const active = selectedIndex === i
-        return (
-          <g key={i} onClick={() => onSelect?.(i)} style={{ cursor: onSelect ? 'pointer' : 'default' }}>
-            <path d={describeArc(cx, cy, r, start, end)} stroke={V.track} strokeWidth={thickness} fill="none" strokeLinecap="round" />
-            <path d={describeArc(cx, cy, r, start, end)} stroke={color} strokeWidth={active ? thickness + 5 : thickness} fill="none" strokeLinecap="round"
-              strokeDasharray={`${len * pct / 100} ${len}`} style={{ transition: 'stroke-dasharray 0.6s ease, stroke-width 0.2s ease' }} />
-          </g>
-        )
-      })}
-    </svg>
-  )
-}
-
-// Founder's note / coach's note / "your why" — the real, unedited text a
-// coach or patient wrote stays completely intact; this only changes HOW
-// it's presented (a large pull-quote next to a big photo, not a paragraph
-// block), per the "pictorial over write-up" direction for this template.
-function PullQuote({ photo, initials, name, role, quote, quoteIsItalic }: { photo?: string | null; initials: string; name: string; role: string; quote: string; quoteIsItalic?: boolean }) {
-  return (
-    <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-      <div style={{ width: 84, height: 84, borderRadius: 22, flexShrink: 0, background: photo ? `url(${photo}) center/cover` : V.accent, border: `1px solid ${V.line}`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 26, fontWeight: 800 }}>
-        {!photo && initials}
-      </div>
-      <div style={{ flex: '1 1 320px', minWidth: 0 }}>
-        <Quote size={26} color={V.accentSoft} fill={V.accentSoft} style={{ marginBottom: 6 }} />
-        <p style={{ fontSize: '1.15rem', lineHeight: 1.5, color: V.ink, fontWeight: 500, fontStyle: quoteIsItalic ? 'italic' : 'normal', margin: '0 0 14px' }}>{renderMarkdownBold(quote)}</p>
-        <div style={{ fontSize: 14, fontWeight: 700, color: V.ink }}>{name}</div>
-        <div style={{ fontSize: 12.5, color: V.muted, marginTop: 1 }}>{role}</div>
-      </div>
-    </div>
-  )
-}
-
 export default function VitalsTemplate({ roadmapId, data, initialCheckins }: { roadmapId: string; data: GuideData; initialCheckins: Checkin[] }) {
   const firstName = data.patient.full_name?.split(' ')[0] || 'there'
   const coachFirst = data.coach?.full_name?.split(' ')[0] || 'your coach'
