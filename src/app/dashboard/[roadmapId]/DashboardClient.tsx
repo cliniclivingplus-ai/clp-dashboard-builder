@@ -851,7 +851,7 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
   const [recipeSearch, setRecipeSearch] = useState<Partial<Record<DayMealSlot, string>>>({})
   const [theme, setTheme] = useState(data.theme && PALETTES[data.theme] ? data.theme : 'classic')
   const [template, setTemplate] = useState(
-    ['almanac', 'pulse', 'onyx', 'week'].includes(data.template) ? data.template : 'classic'
+    ['almanac', 'pulse', 'onyx', 'week', 'vitals'].includes(data.template) ? data.template : 'classic'
   )
   // Picking "1 Week" duration up on the interpret page auto-suggests the
   // Week template down here (it's the only template built for a single
@@ -1584,7 +1584,7 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
               </div>
               <div style={{ ...editLabelStyle, marginTop: 14 }}>Template</div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                {[{ id: 'classic', label: 'Classic' }, { id: 'almanac', label: 'Almanac' }, { id: 'pulse', label: 'Pulse' }, { id: 'onyx', label: 'Onyx' }, { id: 'week', label: 'Week' }].map((t) => (
+                {[{ id: 'classic', label: 'Classic' }, { id: 'almanac', label: 'Almanac' }, { id: 'pulse', label: 'Pulse' }, { id: 'onyx', label: 'Onyx' }, { id: 'week', label: 'Week' }, { id: 'vitals', label: 'Vitals' }].map((t) => (
                   <button key={t.id} onClick={() => setTemplate(t.id)}
                     style={{
                       padding: '6px 14px', borderRadius: 20, cursor: 'pointer', fontSize: 12, fontWeight: 700,
