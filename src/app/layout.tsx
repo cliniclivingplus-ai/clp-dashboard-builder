@@ -1,6 +1,5 @@
 import type { Metadata } from 'next'
 import Script from 'next/script'
-import Link from 'next/link'
 import './globals.css'
 
 export const metadata: Metadata = {
@@ -8,6 +7,13 @@ export const metadata: Metadata = {
   description: 'Clinical nutrition co-pilot for Clinic Living Plus',
 }
 
+// The true shell every route shares — no header, no nav. The CDB header
+// (logo + sign-out) lives in (internal)/layout.tsx, only reachable once
+// logged in; the Compass sub-nav (Patients/Coaches/Picture bank/Recipe
+// bank) lives one level deeper in (internal)/(compass)/layout.tsx. Public
+// patient-facing pages (dashboard/[roadmapId], checklist/[checklistId])
+// and /login sit outside both groups, so they render with none of this
+// app's internal chrome.
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
@@ -15,101 +21,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {/* Google Identity + Picker — loaded once for the Drive import feature */}
         <Script src="https://accounts.google.com/gsi/client" strategy="afterInteractive" />
         <Script src="https://apis.google.com/js/api.js" strategy="afterInteractive" />
-
-        <header
-          style={{
-            background: 'rgba(255,255,255,0.85)',
-            backdropFilter: 'saturate(180%) blur(8px)',
-            borderBottom: '1px solid #ECEBE3',
-            padding: '0 24px',
-            height: 60,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            position: 'sticky',
-            top: 0,
-            zIndex: 50,
-          }}
-        >
-          <Link href="/patients" style={{ display: 'flex', alignItems: 'center', gap: 11, textDecoration: 'none' }}>
-            <div
-              style={{
-                width: 34,
-                height: 34,
-                borderRadius: 10,
-                background: 'linear-gradient(135deg, #538A22, #6DAA33)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: 17,
-                boxShadow: '0 2px 6px rgba(83,138,34,0.28)',
-              }}
-            >
-              🧭
-            </div>
-            <div style={{ lineHeight: 1.2 }}>
-              <div style={{ fontWeight: 700, fontSize: 15.5, color: '#1A2417', letterSpacing: '-0.01em' }}>CLP Dashboard Builder <span style={{ fontWeight: 500, opacity: 0.6 }}>(CDB)</span></div>
-              <div style={{ fontSize: 11.5, color: '#8A9284' }}>Clinic Living Plus · Bangalore</div>
-            </div>
-          </Link>
-
-          <nav style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <Link
-              href="/patients"
-              style={{
-                fontSize: 13.5,
-                fontWeight: 600,
-                color: '#2F5214',
-                textDecoration: 'none',
-                padding: '8px 14px',
-                borderRadius: 8,
-              }}
-            >
-              Patients
-            </Link>
-            <Link
-              href="/coaches"
-              style={{
-                fontSize: 13.5,
-                fontWeight: 600,
-                color: '#2F5214',
-                textDecoration: 'none',
-                padding: '8px 14px',
-                borderRadius: 8,
-              }}
-            >
-              Coaches
-            </Link>
-            <Link
-              href="/guide-images"
-              style={{
-                fontSize: 13.5,
-                fontWeight: 600,
-                color: '#2F5214',
-                textDecoration: 'none',
-                padding: '8px 14px',
-                borderRadius: 8,
-              }}
-            >
-              Picture bank
-            </Link>
-            <Link
-              href="/recipe-bank"
-              style={{
-                fontSize: 13.5,
-                fontWeight: 600,
-                color: '#2F5214',
-                textDecoration: 'none',
-                padding: '8px 14px',
-                borderRadius: 8,
-              }}
-            >
-              Recipe bank
-            </Link>
-          </nav>
-        </header>
-
-        <main style={{ minHeight: 'calc(100vh - 60px)', padding: '32px 24px 64px' }}>{children}</main>
+        {children}
       </body>
     </html>
   )

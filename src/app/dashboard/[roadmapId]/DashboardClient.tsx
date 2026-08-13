@@ -1,6 +1,9 @@
 'use client'
 import { useState, useMemo, useEffect, Fragment, type ReactNode } from 'react'
-import { CheckCircle2, Circle, MapPin, Utensils, Pill, ShoppingCart, HeartPulse, HelpCircle, Phone, X, ChefHat, Download, Sparkles, Star, Save, Check, Loader2, ExternalLink, Flame, CalendarCheck, Target, TrendingUp, ChevronDown, ChevronRight, Video, MessageCircle, Users, Activity, Stethoscope, Plus, Trash2, Eye, EyeOff, Moon, Droplet, Brain, Sun, Footprints, Smartphone, Link as LinkIcon, type LucideIcon } from 'lucide-react'
+import { CheckCircle2, Circle, MapPin, Utensils, Pill, ShoppingCart, HeartPulse, HelpCircle, Phone, X, ChefHat, Download, Sparkles, Star, Save, Check, Loader2, ExternalLink, Flame, CalendarCheck, Target, TrendingUp, ChevronDown, ChevronRight, Video, MessageCircle, Users, Activity, Stethoscope, Plus, Trash2, Eye, EyeOff, Moon, Droplet, Brain, Sun, Footprints, Smartphone, LinkIcon, type IconComponent } from '@/lib/kawaii/icons'
+import { Splash } from '@/lib/kawaii/Mascot'
+import { KAWAII, KAWAII_PALETTE } from '@/lib/kawaii/tokens'
+import { KAWAII_MOTION_CSS } from '@/lib/kawaii/motion'
 import { reshapeRoadmapIntoMonths, type WeeklyPlan } from '@/lib/pdf/reshapeRoadmap'
 import { parseNutritionistGuidelines } from '@/lib/pdf/parseNutritionistGuidelines'
 import { matchGuideImageDistinct } from '@/lib/pdf/matchGuideImage'
@@ -48,12 +51,14 @@ const PALETTES: Record<string, PaletteTokens> = {
     bg: '#FBF1EE', paper: '#FFFFFF', ink: '#2B2220', inkSoft: '#5C453F',
     accent: '#8C4B5A', accentSoft: '#F1DCE0', rule: '#E8D3CC', muted: '#8F7A75', green: '#4C7A4F', greenDeep: '#2C4A2E',
   },
+  kawaii: KAWAII_PALETTE,
 }
 const PALETTE_LIST: { id: string; label: string }[] = [
   { id: 'classic', label: 'Classic' },
   { id: 'sage', label: 'Sage' },
   { id: 'ocean', label: 'Ocean' },
   { id: 'berry', label: 'Berry' },
+  { id: 'kawaii', label: 'Kawaii' },
 ]
 // One color per food-group slot in a meal plate — cycled by index, matches
 // across the wheel diagram and its pill chips so a category reads the same
@@ -61,11 +66,14 @@ const PALETTE_LIST: { id: string; label: string }[] = [
 
 type Checkin = { week_number: number; action_index: number; checkin_date: string }
 
-const cardStyle = { background: C.paper, border: `1px solid ${C.rule}`, borderRadius: 14, padding: '20px 22px', marginBottom: 18 }
-const sectionTitleStyle = { display: 'flex', alignItems: 'center', gap: 9, fontSize: 17, fontWeight: 700, color: C.ink, marginBottom: 14 }
-const bulletStyle = { fontSize: 13.5, color: C.ink, lineHeight: 1.6, margin: '0 0 8px' }
+// Radius/shadow/font are CSS vars with non-kawaii fallbacks, set per-theme
+// on the root wrapper below — so these constants work unchanged under all
+// 5 themes, only actually shifting shape/font when "Kawaii" is selected.
+const cardStyle = { background: C.paper, border: `1px solid ${C.rule}`, borderRadius: 'var(--clp-radius-card, 14px)', boxShadow: 'var(--clp-shadow-card, none)', padding: '20px 22px', marginBottom: 18 }
+const sectionTitleStyle = { display: 'flex', alignItems: 'center', gap: 9, fontSize: 17, fontWeight: 700, color: C.ink, marginBottom: 14, fontFamily: 'var(--clp-font-heading, inherit)' }
+const bulletStyle = { fontSize: 13.5, color: C.ink, lineHeight: 1.6, margin: '0 0 8px', fontFamily: 'var(--clp-font-body, inherit)' }
 
-const LIFESTYLE_ICON_RULES: [RegExp, LucideIcon][] = [
+const LIFESTYLE_ICON_RULES: [RegExp, IconComponent][] = [
   [/\b(sleep|bedtime|wind[- ]down|rest)\b/i, Moon],
   [/\b(water|hydrat|fluid)\b/i, Droplet],
   [/\b(walk|step|exercise|movement|activity|stretch|workout)\b/i, Footprints],
@@ -74,7 +82,7 @@ const LIFESTYLE_ICON_RULES: [RegExp, LucideIcon][] = [
   [/\b(screen|phone|device|scroll)\b/i, Smartphone],
   [/\b(sun|morning|light|wake)\b/i, Sun],
 ]
-function iconForBullet(text: string): LucideIcon {
+function iconForBullet(text: string): IconComponent {
   for (const [pattern, Icon] of LIFESTYLE_ICON_RULES) if (pattern.test(text)) return Icon
   return HeartPulse
 }
@@ -140,7 +148,7 @@ const SLOT_LABELS: Record<DayMealSlot, string> = { breakfast: 'Breakfast', lunch
 // A small fixed set of icons a coach can pick from for a "what's included in
 // your care" tile — not free-form (keeps every tile visually consistent),
 // but broad enough to cover the common service types a coaching plan has.
-const CARE_ICON_OPTIONS: { key: string; label: string; Icon: LucideIcon }[] = [
+const CARE_ICON_OPTIONS: { key: string; label: string; Icon: IconComponent }[] = [
   { key: 'coaching', label: 'Coaching session', Icon: Star },
   { key: 'video', label: 'Video call', Icon: Video },
   { key: 'phone', label: 'Phone call', Icon: Phone },
@@ -152,7 +160,7 @@ const CARE_ICON_OPTIONS: { key: string; label: string; Icon: LucideIcon }[] = [
   { key: 'group', label: 'Group session', Icon: Users },
   { key: 'followup', label: 'Follow-up', Icon: CalendarCheck },
 ]
-const CARE_ICON_MAP: Record<string, LucideIcon> = Object.fromEntries(CARE_ICON_OPTIONS.map((o) => [o.key, o.Icon]))
+const CARE_ICON_MAP: Record<string, IconComponent> = Object.fromEntries(CARE_ICON_OPTIONS.map((o) => [o.key, o.Icon]))
 
 // Small pill a coach clicks to hide/show a whole section for this patient —
 // hiding it removes it from the live page, the downloaded static HTML, and
@@ -1295,14 +1303,19 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  const isKawaii = theme === 'kawaii'
   return (
     <div id="dashboard-export-root" style={{ background: C.bg, minHeight: '100vh' }}>
+      {isKawaii && <link rel="preconnect" href="https://fonts.googleapis.com" />}
+      {isKawaii && <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet" />}
       <style>{`html{scroll-behavior:smooth;}
 #dashboard-export-root{
   --clp-bg:${PALETTES[theme].bg}; --clp-paper:${PALETTES[theme].paper}; --clp-ink:${PALETTES[theme].ink}; --clp-ink-soft:${PALETTES[theme].inkSoft};
   --clp-accent:${PALETTES[theme].accent}; --clp-accent-soft:${PALETTES[theme].accentSoft}; --clp-rule:${PALETTES[theme].rule}; --clp-muted:${PALETTES[theme].muted};
   --clp-green:${PALETTES[theme].green}; --clp-green-deep:${PALETTES[theme].greenDeep};
+  ${isKawaii ? `--clp-radius-card:${KAWAII.radiusCard}px; --clp-radius-pill:${KAWAII.radiusPill}px; --clp-shadow-card:${KAWAII.shadow}; --clp-font-heading:${KAWAII.fontHeading}; --clp-font-body:${KAWAII.fontBody};` : ''}
 }`}</style>
+      {isKawaii && <style>{KAWAII_MOTION_CSS}</style>}
       {editable && <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>}
       {/* Table of contents — a single dropdown button rather than a row of
           links, so it never overflows or shows a scrollbar regardless of
@@ -2252,9 +2265,12 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
           <div id="track" {...hiddenAttrs('track')} style={{ ...cardStyle, scrollMarginTop: SECTION_SCROLL_MARGIN, ...hiddenStyle('track') }}>
             {editable && <SectionToggle hidden={isHidden('track')} onToggle={() => toggleSection('track')} />}
             <div style={sectionTitleStyle}><CheckCircle2 size={18} color={C.accent} /> Track your progress</div>
-            <p data-track-empty style={{ ...bulletStyle, color: C.muted, display: progress.totalDaysLogged === 0 ? 'block' : 'none' }}>
-              No check-ins logged yet, tap a goal in your roadmap above each day you complete it, and your progress will show up here.
-            </p>
+            <div data-track-empty style={{ display: progress.totalDaysLogged === 0 ? 'flex' : 'none', alignItems: 'center', gap: 14 }}>
+              {isKawaii && <Splash expression="neutral" size={56} />}
+              <p style={{ ...bulletStyle, color: C.muted, margin: 0 }}>
+                No check-ins logged yet, tap a goal in your roadmap above each day you complete it, and your progress will show up here.
+              </p>
+            </div>
             <div data-track-content style={{ display: progress.totalDaysLogged === 0 ? 'none' : 'block' }}>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 22 }}>
                 <StatCard dataStat="streak" icon={<Flame size={14} color={C.accent} />} value={progress.streak} label="day streak" color={C.accent} />
