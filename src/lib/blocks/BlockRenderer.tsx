@@ -4,17 +4,28 @@
 // the block palette is fixed (see types.ts); this is the ONLY thing that
 // ever turns block data into markup, so both the coach's editor and the
 // patient's public page render identically from the same source.
+import type { CSSProperties } from 'react'
 import { CheckCircle2, Circle, ChefHat } from 'lucide-react'
 import type { ChecklistPageBlock } from './types'
 import { resolveBlockIcon } from './icons'
 import { Card, PullQuote, PieChart, DEFAULT_ACCENT, DEFAULT_ACCENT_SOFT, DEFAULT_LINE } from './primitives'
 import { renderMarkdownBold } from '@/lib/renderMarkdownBold'
 
-type RecipeLookup = { id: string; name: string; image_url?: string | null; protein_label?: string | null }
-type ImageLookup = { id: string; label: string; image_url: string }
+export type RecipeLookup = { id: string; name: string; image_url?: string | null; protein_label?: string | null }
+export type ImageLookup = { id: string; label: string; image_url: string }
+
+// Design-time width of the manual canvas — the coach's editor and the
+// public/patient view both scale a canvas of exactly this width to fit
+// whatever viewport it's shown on (see ScaledCanvasView.tsx), rather than
+// reflowing individual blocks per breakpoint.
+export const CANVAS_WIDTH = 720
+
+export function computeCanvasHeight(blocks: ChecklistPageBlock[]): number {
+  return blocks.reduce((max, b) => Math.max(max, (b.layout?.y ?? 0) + (b.layout?.h ?? 0)), 0) + 32
+}
 
 export function BlockRenderer({
-  blocks, recipesById, imagesById, checkedItems, onCheckItem, selectable, selectedBlockId, onSelectBlock,
+  blocks, recipesById, imagesById, checkedItems, onCheckItem, selectable, selectedBlockId, onSelectBlock, layoutMode = 'stack', onBlockRef,
 }: {
   blocks: ChecklistPageBlock[]
   recipesById?: Record<string, RecipeLookup>
@@ -24,38 +35,83 @@ export function BlockRenderer({
   selectable?: boolean
   selectedBlockId?: string | null
   onSelectBlock?: (id: string) => void
+  // 'canvas' requires every block to already carry layout (x/y/w/h) — used
+  // once a checklist has manual layout data. Falls back to the original
+  // stacked flow otherwise, so old/AI-fresh checklists are unaffected.
+  layoutMode?: 'stack' | 'canvas'
+  // Stack mode only — lets the manual editor measure each block's rendered
+  // position/size once, to seed initial canvas layout data.
+  onBlockRef?: (id: string, el: HTMLDivElement | null) => void
 }) {
+  if (layoutMode === 'canvas') {
+    const height = computeCanvasHeight(blocks)
+    return (
+      <div style={{ position: 'relative', width: CANVAS_WIDTH, height }}>
+        {blocks.map((block) => {
+          const l = block.layout
+          if (!l) return null
+          return (
+            <div key={block.id} style={{ position: 'absolute', left: l.x, top: l.y, width: l.w, height: l.h }}>
+              <BlockCard block={block} selectable={selectable} selected={selectedBlockId === block.id} onClick={() => onSelectBlock?.(block.id)} fill background={l.bg}>
+                <BlockBody block={block} recipesById={recipesById ?? {}} imagesById={imagesById ?? {}} checkedItems={checkedItems ?? {}} onCheckItem={onCheckItem} />
+              </BlockCard>
+            </div>
+          )
+        })}
+      </div>
+    )
+  }
   return (
     <div>
       {blocks.map((block) => (
-        <BlockCard key={block.id} block={block} selectable={selectable} selected={selectedBlockId === block.id} onClick={() => onSelectBlock?.(block.id)}>
-          <BlockBody block={block} recipesById={recipesById ?? {}} imagesById={imagesById ?? {}} checkedItems={checkedItems ?? {}} onCheckItem={onCheckItem} />
-        </BlockCard>
+        <div key={block.id} ref={onBlockRef ? (el) => onBlockRef(block.id, el) : undefined}>
+          <BlockCard block={block} selectable={selectable} selected={selectedBlockId === block.id} onClick={() => onSelectBlock?.(block.id)}>
+            <BlockBody block={block} recipesById={recipesById ?? {}} imagesById={imagesById ?? {}} checkedItems={checkedItems ?? {}} onCheckItem={onCheckItem} />
+          </BlockCard>
+        </div>
       ))}
     </div>
   )
 }
 
-function BlockCard({ block, selectable, selected, onClick, children }: { block: ChecklistPageBlock; selectable?: boolean; selected?: boolean; onClick?: () => void; children: React.ReactNode }) {
+export function BlockCard({ block, selectable, selected, onClick, children, fill, background }: { block: ChecklistPageBlock; selectable?: boolean; selected?: boolean; onClick?: () => void; children: React.ReactNode; fill?: boolean; background?: string }) {
+  // 'visible' rather than 'auto': block height is always kept in sync with
+  // real content height by the manual editor (see registerContentEl in the
+  // editor page), so nothing should ever need an internal scrollbar. Using
+  // 'visible' means content is never clipped even for the one frame before
+  // that sync catches up.
+  const fillStyle: CSSProperties = fill ? { width: '100%', height: '100%', boxSizing: 'border-box', overflow: 'visible', marginBottom: 0 } : {}
   if (block.type === 'hero') {
     return (
       <div onClick={selectable ? onClick : undefined} style={{
         textAlign: 'center', padding: '2.5rem 1.5rem', marginBottom: 16, borderRadius: 20,
-        background: DEFAULT_ACCENT_SOFT, border: `1px solid ${selected ? DEFAULT_ACCENT : 'transparent'}`,
-        cursor: selectable ? 'pointer' : 'default',
+        background: background ?? DEFAULT_ACCENT_SOFT, border: `1px solid ${selected ? DEFAULT_ACCENT : 'transparent'}`,
+        cursor: selectable ? 'pointer' : 'default', ...fillStyle,
+      }}>
+        {children}
+      </div>
+    )
+  }
+  if (block.type === 'image') {
+    // No Card padding — the picture fills its box edge to edge.
+    return (
+      <div onClick={selectable ? onClick : undefined} style={{
+        borderRadius: 16, overflow: 'hidden', marginBottom: 16,
+        border: `1px solid ${selected ? DEFAULT_ACCENT : DEFAULT_LINE}`,
+        background: background ?? '#F3F4F6', cursor: selectable ? 'pointer' : 'default', ...fillStyle,
       }}>
         {children}
       </div>
     )
   }
   return (
-    <Card onClick={selectable ? onClick : undefined} selected={selected}>
+    <Card onClick={selectable ? onClick : undefined} selected={selected} background={background} style={fillStyle}>
       {children}
     </Card>
   )
 }
 
-function BlockBody({ block, recipesById, imagesById, checkedItems, onCheckItem }: { block: ChecklistPageBlock; recipesById: Record<string, RecipeLookup>; imagesById: Record<string, ImageLookup>; checkedItems: Record<string, boolean>; onCheckItem?: (key: string, checked: boolean) => void }) {
+export function BlockBody({ block, recipesById, imagesById, checkedItems, onCheckItem }: { block: ChecklistPageBlock; recipesById: Record<string, RecipeLookup>; imagesById: Record<string, ImageLookup>; checkedItems: Record<string, boolean>; onCheckItem?: (key: string, checked: boolean) => void }) {
   switch (block.type) {
     case 'hero':
       return (
@@ -125,6 +181,26 @@ function BlockBody({ block, recipesById, imagesById, checkedItems, onCheckItem }
                     <div style={{ fontSize: 14, fontWeight: 800 }}>{it.topic}</div>
                   </div>
                   <p style={{ fontSize: 12.5, color: '#374151', lineHeight: 1.5, margin: 0 }}>{renderMarkdownBold(it.text)}</p>
+                </div>
+              )
+            })}
+          </div>
+        </>
+      )
+
+    case 'goal_icons':
+      return (
+        <>
+          {block.title && <BlockTitle>{block.title}</BlockTitle>}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(96px, 1fr))', gap: 16, marginTop: block.title ? 16 : 0 }}>
+            {block.items.map((it, i) => {
+              const Icon = resolveBlockIcon(it.icon)
+              return (
+                <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 10 }}>
+                  <div style={{ width: 64, height: 64, borderRadius: '50%', background: DEFAULT_ACCENT_SOFT, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Icon size={30} color={DEFAULT_ACCENT} strokeWidth={2} />
+                  </div>
+                  <div style={{ fontSize: 12.5, fontWeight: 700, color: '#111827', lineHeight: 1.3 }}>{it.label}</div>
                 </div>
               )
             })}
@@ -212,6 +288,44 @@ function BlockBody({ block, recipesById, imagesById, checkedItems, onCheckItem }
           <p style={{ fontSize: 13.5, color: '#374151', lineHeight: 1.6, margin: block.title ? '10px 0 0' : 0 }}>{renderMarkdownBold(block.text)}</p>
         </>
       )
+
+    case 'table':
+      return (
+        <>
+          {block.title && <BlockTitle>{block.title}</BlockTitle>}
+          <div style={{ overflowX: 'auto', marginTop: block.title ? 12 : 0 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+              <thead>
+                <tr>
+                  {block.headers.map((h, i) => (
+                    <th key={i} style={{ textAlign: 'left', padding: '7px 10px', borderBottom: `2px solid ${DEFAULT_LINE}`, color: '#111827', fontWeight: 800, whiteSpace: 'nowrap' }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {block.rows.map((row, ri) => (
+                  <tr key={ri}>
+                    {row.map((cell, ci) => (
+                      <td key={ci} style={{ padding: '7px 10px', borderBottom: `1px solid ${DEFAULT_LINE}`, color: '#374151' }}>{cell}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )
+
+    case 'image': {
+      const img = imagesById[block.image_id]
+      if (!img) return null
+      return (
+        <>
+          <img src={img.image_url} alt={block.caption || img.label} style={{ width: '100%', height: block.layout ? '100%' : 320, objectFit: 'cover', display: 'block' }} />
+          {block.caption && <div style={{ padding: '8px 12px', fontSize: 12, color: '#6B7280' }}>{block.caption}</div>}
+        </>
+      )
+    }
 
     default:
       return null

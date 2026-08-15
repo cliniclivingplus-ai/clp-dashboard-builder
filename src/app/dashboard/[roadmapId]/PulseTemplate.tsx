@@ -25,6 +25,8 @@ import { GROCERY_CATEGORIES } from '@/lib/foodPlates'
 import { buildGroceryList, type GroceryCategory } from '@/lib/groceryList'
 import { matchGuideImageDistinct } from '@/lib/pdf/matchGuideImage'
 import { buildInlineExportScript } from '@/lib/pdf/inlineExportScript'
+import { CanvasBlocksSection } from './CanvasBlocksSection'
+import { PALETTES } from './palettes'
 
 const DAY_MEAL_SLOTS: DayMealSlot[] = ['breakfast', 'lunch', 'dinner', 'snack', 'dessert']
 const SLOT_LABELS: Record<DayMealSlot, string> = { breakfast: 'Breakfast', lunch: 'Lunch', dinner: 'Dinner', snack: 'Snacks', dessert: 'Desserts' }
@@ -91,13 +93,6 @@ function iconForBullet(text: string): LucideIcon {
   return HeartPulse
 }
 
-const PULSE = {
-  bg: '#F5F7F5', card: '#FFFFFF', border: '#E5E8EB',
-  ink: '#1C2430', inkSoft: '#4B5563', muted: '#6B7280',
-  accent: '#0F9B8E', accentSoft: '#E1F5EE', accentDeep: '#085041',
-  warn: '#D85A30',
-}
-
 const FONT_LINK = 'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap'
 
 const TOC_ITEMS: { label: string; id: string }[] = [
@@ -117,80 +112,92 @@ const TOC_ITEMS: { label: string; id: string }[] = [
   { label: 'FAQ', id: 'faq' },
 ]
 
-function Eyebrow({ children }: { children: React.ReactNode }) {
-  return (
-    <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: PULSE.accent, display: 'block', marginBottom: 8 }}>
-      {children}
-    </span>
-  )
-}
-
-function SecTitle({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
-      <span style={{ color: PULSE.accent, display: 'flex' }}>{icon}</span>
-      <h2 style={{ fontSize: 20, fontWeight: 700, margin: 0, color: PULSE.ink }}>{children}</h2>
-    </div>
-  )
-}
-
-function Card({ id, hidden, children, style }: { id?: string; hidden?: boolean; children: React.ReactNode; style?: CSSProperties }) {
-  return (
-    <div id={id} style={{
-      background: PULSE.card, border: `1px solid ${PULSE.border}`, borderRadius: 20, padding: '1.75rem 1.9rem', marginBottom: 16,
-      ...(hidden ? { display: 'none' } : {}), ...style,
-    }}>
-      {children}
-    </div>
-  )
-}
-
-function KVGrid({ items, showIcons }: { items: string[]; showIcons?: boolean }) {
-  return (
-    <div style={{ display: 'grid', gridTemplateColumns: showIcons ? '1fr' : 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10, marginTop: 18 }}>
-      {items.map((bullet, i) => {
-        const { k, v } = splitKV(bullet)
-        const Icon = showIcons ? iconForBullet(bullet) : null
-        return (
-          <div key={i} style={{ border: `1px solid ${PULSE.border}`, borderRadius: 12, padding: '12px 14px', background: PULSE.bg, display: 'flex', gap: Icon ? 14 : 0, alignItems: 'center' }}>
-            {Icon && (
-              <div style={{ width: 32, height: 32, borderRadius: 9, background: PULSE.accentSoft, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <Icon size={15} color={PULSE.accentDeep} />
-              </div>
-            )}
-            <div>
-              {k && <span style={{ display: 'block', fontSize: 10.5, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: PULSE.accent, marginBottom: 4 }}>{k}</span>}
-              <span style={{ fontSize: '0.9rem', lineHeight: 1.5, color: PULSE.ink }}>{renderMarkdownBold(v)}</span>
-            </div>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
-// The centerpiece visual: a circular ring filled to the patient's real
-// tracked adherence (goalsDone / totalActionsInPlan, the same number "Track
-// your progress" shows) — grounded in real data, same principle as
-// Almanac's growing tree, different visual mechanism (a clinical/vital-signs
-// read rather than an organic one).
-function AdherenceRing({ pct, size = 132 }: { pct: number; size?: number }) {
-  const r = (size - 14) / 2
-  const c = size / 2
-  const circumference = 2 * Math.PI * r
-  const offset = circumference * (1 - pct / 100)
-  return (
-    <svg data-adherence-ring width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ flexShrink: 0 }}>
-      <circle cx={c} cy={c} r={r} fill="none" stroke={PULSE.border} strokeWidth={12} />
-      <circle data-ring-fill cx={c} cy={c} r={r} fill="none" stroke={PULSE.accent} strokeWidth={12} strokeLinecap="round"
-        strokeDasharray={circumference} strokeDashoffset={offset} transform={`rotate(-90 ${c} ${c})`} />
-      <text data-ring-pct-text x={c} y={c - 4} textAnchor="middle" fontSize={size * 0.19} fontWeight={800} fill={PULSE.ink} fontFamily="'Plus Jakarta Sans', sans-serif">{pct}%</text>
-      <text x={c} y={c + 16} textAnchor="middle" fontSize={size * 0.075} fontWeight={700} letterSpacing="0.06em" fill={PULSE.muted} fontFamily="'Plus Jakarta Sans', sans-serif">ADHERENCE</text>
-    </svg>
-  )
-}
-
 export default function PulseTemplate({ roadmapId, data, initialCheckins }: { roadmapId: string; data: GuideData; initialCheckins: Checkin[] }) {
+  const theme = data.theme && PALETTES[data.theme] ? data.theme : 'classic'
+  const p = PALETTES[theme]
+  // Pulse's own shape: some tokens map straight from the shared palette,
+  // `warn` stays fixed (a warning color shouldn't shift with the aesthetic
+  // palette), `accentDeep` uses the closest available "deep" tone.
+  const PULSE = {
+    bg: p.bg, card: p.paper, border: p.rule,
+    ink: p.ink, inkSoft: p.inkSoft, muted: p.muted,
+    accent: p.accent, accentSoft: p.accentSoft, accentDeep: p.greenDeep,
+    warn: '#D85A30',
+  }
+
+  function Eyebrow({ children }: { children: React.ReactNode }) {
+    return (
+      <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: PULSE.accent, display: 'block', marginBottom: 8 }}>
+        {children}
+      </span>
+    )
+  }
+
+  function SecTitle({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+        <span style={{ color: PULSE.accent, display: 'flex' }}>{icon}</span>
+        <h2 style={{ fontSize: 20, fontWeight: 700, margin: 0, color: PULSE.ink }}>{children}</h2>
+      </div>
+    )
+  }
+
+  function Card({ id, hidden, children, style }: { id?: string; hidden?: boolean; children: React.ReactNode; style?: CSSProperties }) {
+    return (
+      <div id={id} style={{
+        background: PULSE.card, border: `1px solid ${PULSE.border}`, borderRadius: 20, padding: '1.75rem 1.9rem', marginBottom: 16,
+        ...(hidden ? { display: 'none' } : {}), ...style,
+      }}>
+        {children}
+      </div>
+    )
+  }
+
+  function KVGrid({ items, showIcons }: { items: string[]; showIcons?: boolean }) {
+    return (
+      <div style={{ display: 'grid', gridTemplateColumns: showIcons ? '1fr' : 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10, marginTop: 18 }}>
+        {items.map((bullet, i) => {
+          const { k, v } = splitKV(bullet)
+          const Icon = showIcons ? iconForBullet(bullet) : null
+          return (
+            <div key={i} style={{ border: `1px solid ${PULSE.border}`, borderRadius: 12, padding: '12px 14px', background: PULSE.bg, display: 'flex', gap: Icon ? 14 : 0, alignItems: 'center' }}>
+              {Icon && (
+                <div style={{ width: 32, height: 32, borderRadius: 9, background: PULSE.accentSoft, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <Icon size={15} color={PULSE.accentDeep} />
+                </div>
+              )}
+              <div>
+                {k && <span style={{ display: 'block', fontSize: 10.5, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: PULSE.accent, marginBottom: 4 }}>{k}</span>}
+                <span style={{ fontSize: '0.9rem', lineHeight: 1.5, color: PULSE.ink }}>{renderMarkdownBold(v)}</span>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    )
+  }
+
+  // The centerpiece visual: a circular ring filled to the patient's real
+  // tracked adherence (goalsDone / totalActionsInPlan, the same number "Track
+  // your progress" shows) — grounded in real data, same principle as
+  // Almanac's growing tree, different visual mechanism (a clinical/vital-signs
+  // read rather than an organic one).
+  function AdherenceRing({ pct, size = 132 }: { pct: number; size?: number }) {
+    const r = (size - 14) / 2
+    const c = size / 2
+    const circumference = 2 * Math.PI * r
+    const offset = circumference * (1 - pct / 100)
+    return (
+      <svg data-adherence-ring width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ flexShrink: 0 }}>
+        <circle cx={c} cy={c} r={r} fill="none" stroke={PULSE.border} strokeWidth={12} />
+        <circle data-ring-fill cx={c} cy={c} r={r} fill="none" stroke={PULSE.accent} strokeWidth={12} strokeLinecap="round"
+          strokeDasharray={circumference} strokeDashoffset={offset} transform={`rotate(-90 ${c} ${c})`} />
+        <text data-ring-pct-text x={c} y={c - 4} textAnchor="middle" fontSize={size * 0.19} fontWeight={800} fill={PULSE.ink} fontFamily="'Plus Jakarta Sans', sans-serif">{pct}%</text>
+        <text x={c} y={c + 16} textAnchor="middle" fontSize={size * 0.075} fontWeight={700} letterSpacing="0.06em" fill={PULSE.muted} fontFamily="'Plus Jakarta Sans', sans-serif">ADHERENCE</text>
+      </svg>
+    )
+  }
+
   const firstName = data.patient.full_name?.split(' ')[0] || 'there'
   const coachFirst = data.coach?.full_name?.split(' ')[0] || 'your coach'
   const hiddenSections = data.hiddenSections ?? []
@@ -982,6 +989,7 @@ export default function PulseTemplate({ roadmapId, data, initialCheckins }: { ro
         </Card>
 
         <div style={{ color: PULSE.muted, fontSize: '0.75rem', marginTop: 24, textAlign: 'center' }}>Clinic Living Plus Pvt Ltd™</div>
+        <CanvasBlocksSection blocks={data.canvasBlocks} recipesById={Object.fromEntries(data.recipeBank.map((r) => [r.id, r]))} imagesById={Object.fromEntries(data.imageBank.map((im) => [im.id, im]))} />
       </div>
     </div>
   )

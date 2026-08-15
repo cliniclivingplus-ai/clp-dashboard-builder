@@ -29,6 +29,7 @@ import { GROCERY_CATEGORIES } from '@/lib/foodPlates'
 import { buildGroceryList, type GroceryCategory } from '@/lib/groceryList'
 import { matchGuideImageDistinct } from '@/lib/pdf/matchGuideImage'
 import { buildInlineExportScript } from '@/lib/pdf/inlineExportScript'
+import { CanvasBlocksSection } from './CanvasBlocksSection'
 
 const DAY_MEAL_SLOTS: DayMealSlot[] = ['breakfast', 'lunch', 'dinner', 'snack', 'dessert']
 const SLOT_LABELS: Record<DayMealSlot, string> = { breakfast: 'Breakfast', lunch: 'Lunch', dinner: 'Dinner', snack: 'Snacks', dessert: 'Desserts' }
@@ -992,6 +993,7 @@ export default function OnyxTemplate({ roadmapId, data, initialCheckins }: { roa
         </Card>
 
         <div style={{ color: ONYX.muted, fontSize: '0.72rem', marginTop: 24, textAlign: 'center', letterSpacing: '0.04em' }}>CLINIC LIVING PLUS PVT LTD™</div>
+        <CanvasBlocksSection blocks={data.canvasBlocks} recipesById={Object.fromEntries(data.recipeBank.map((r) => [r.id, r]))} imagesById={Object.fromEntries(data.imageBank.map((im) => [im.id, im]))} />
       </div>
     </div>
   )

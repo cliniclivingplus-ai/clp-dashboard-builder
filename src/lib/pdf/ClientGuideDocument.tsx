@@ -8,6 +8,7 @@ import { matchGuideImageDistinct, type GuideImage } from './matchGuideImage'
 import { selectRecipesForPatient, type BankRecipe } from './matchRecipes'
 import { splitRecipeLines } from '../recipeText'
 import { cleanSourceTitle, sourceSearchUrl } from '../sourceLinks'
+import type { ChecklistPageBlock } from '../blocks/types'
 
 export type KbSource = { title: string; source_type: string; chunk_preview: string }
 
@@ -57,6 +58,7 @@ export type GuideData = {
   hiddenSections: string[] // section keys (GUIDE_SECTIONS keys / dashboard section ids) the coach has switched off for this patient — omitted everywhere: live dashboard, PDF, offline export
   dailyMetrics: Record<string, { water?: number; energy?: number; mood?: string }> // Week template's "Daily Health Check-in" water/energy/mood, keyed by real ISO date — separate from roadmap_checkins (which is boolean goal check-offs only), stored on the roadmap row itself since it's just a few small numbers/text per day
   powerPoints: { url: string; note: string }[] // "Your Power Points" — coach-pasted links (videos, articles, tools) each with a short note, replaces the old static food-plate breakdown section
+  canvasBlocks: ChecklistPageBlock[] // coach's freeform "Custom blocks" section — same block/canvas system as the standalone Checklist feature (src/lib/blocks/*), manually positioned. Empty by default; renders nothing when empty.
 }
 
 const cover = StyleSheet.create({

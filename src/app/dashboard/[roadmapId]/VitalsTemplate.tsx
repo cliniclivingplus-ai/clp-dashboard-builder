@@ -29,7 +29,9 @@ import { GROCERY_CATEGORIES } from '@/lib/foodPlates'
 import { buildGroceryList, type GroceryCategory } from '@/lib/groceryList'
 import { matchGuideImageDistinct } from '@/lib/pdf/matchGuideImage'
 import { buildInlineExportScript } from '@/lib/pdf/inlineExportScript'
-import { Ring, Wheel, Card, PullQuote, DEFAULT_WHEEL_COLORS as WHEEL_COLORS } from '@/lib/blocks/primitives'
+import { Ring as PrimRing, Wheel, Card as PrimCard, PullQuote, DEFAULT_WHEEL_COLORS as WHEEL_COLORS } from '@/lib/blocks/primitives'
+import { CanvasBlocksSection } from './CanvasBlocksSection'
+import { PALETTES } from './palettes'
 
 const DAY_MEAL_SLOTS: DayMealSlot[] = ['breakfast', 'lunch', 'dinner', 'snack', 'dessert']
 const SLOT_LABELS: Record<DayMealSlot, string> = { breakfast: 'Breakfast', lunch: 'Lunch', dinner: 'Dinner', snack: 'Snacks', dessert: 'Desserts' }
@@ -99,11 +101,6 @@ function bucketForTiming(timing: string): string {
   return 'As directed'
 }
 
-const V = {
-  bg: '#F5F7FB', card: '#FFFFFF', ink: '#111827', inkSoft: '#374151', muted: '#6B7280', faint: '#9CA3AF',
-  line: '#E5E9F0', accent: '#2563EB', accentSoft: '#EFF4FF', accentDeep: '#1E40AF',
-  warn: '#DC2626', track: '#E5E9F0',
-}
 const FONT_LINK = 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap'
 
 const TOC_ITEMS: { label: string; id: string }[] = [
@@ -123,18 +120,38 @@ const TOC_ITEMS: { label: string; id: string }[] = [
   { label: 'FAQ', id: 'faq' },
 ]
 
-function Eyebrow({ children }: { children: React.ReactNode }) {
-  return <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: V.accent, display: 'block', marginBottom: 8 }}>{children}</span>
-}
-function SecTitle({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
-      <span style={{ color: V.accent, display: 'flex' }}>{icon}</span>
-      <h2 style={{ fontSize: 22, fontWeight: 800, margin: 0, color: V.ink, letterSpacing: '-0.01em' }}>{children}</h2>
-    </div>
-  )
-}
 export default function VitalsTemplate({ roadmapId, data, initialCheckins }: { roadmapId: string; data: GuideData; initialCheckins: Checkin[] }) {
+  const theme = data.theme && PALETTES[data.theme] ? data.theme : 'classic'
+  const p = PALETTES[theme]
+  // Vitals' own shape: most tokens map straight from the shared palette;
+  // `faint`/`track`/`warn` have no equivalent and stay fixed.
+  const V = {
+    bg: p.bg, card: p.paper, ink: p.ink, inkSoft: p.inkSoft, muted: p.muted, faint: '#9CA3AF',
+    line: p.rule, accent: p.accent, accentSoft: p.accentSoft, accentDeep: p.greenDeep,
+    warn: '#DC2626', track: '#E5E9F0',
+  }
+
+  function Eyebrow({ children }: { children: React.ReactNode }) {
+    return <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: V.accent, display: 'block', marginBottom: 8 }}>{children}</span>
+  }
+  function SecTitle({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+        <span style={{ color: V.accent, display: 'flex' }}>{icon}</span>
+        <h2 style={{ fontSize: 22, fontWeight: 800, margin: 0, color: V.ink, letterSpacing: '-0.01em' }}>{children}</h2>
+      </div>
+    )
+  }
+  // Thin theme-aware wrappers around the shared primitives, which otherwise
+  // default to a fixed blue — every Card/Ring call in this file goes through
+  // these instead so the palette actually reaches them.
+  function Card(props: Parameters<typeof PrimCard>[0]) {
+    return <PrimCard background={V.card} borderColor={V.line} {...props} />
+  }
+  function Ring(props: Parameters<typeof PrimRing>[0]) {
+    return <PrimRing color={V.accent} trackColor={V.track} {...props} />
+  }
+
   const firstName = data.patient.full_name?.split(' ')[0] || 'there'
   const coachFirst = data.coach?.full_name?.split(' ')[0] || 'your coach'
   const hiddenStyle = (id: string): CSSProperties => ((data.hiddenSections ?? []).includes(id) ? { display: 'none' } : {})
@@ -356,6 +373,7 @@ export default function VitalsTemplate({ roadmapId, data, initialCheckins }: { r
         <Card id="founder" hidden={isHidden('founder')}>
           <Eyebrow>A note from the founder</Eyebrow>
           <PullQuote initials="RS" name="Roshni Sanghvi" role="Founder, Clinic Living Plus"
+            accentColor={V.accent} accentSoft={V.accentSoft} borderColor={V.line}
             quote={`${firstName}, this plan wasn't templated, a coach spent real time on your actual life before a single recommendation in here was chosen.`} />
         </Card>
 
@@ -364,6 +382,7 @@ export default function VitalsTemplate({ roadmapId, data, initialCheckins }: { r
           <Card id="coach" hidden={isHidden('coach')}>
             <Eyebrow>Your coach</Eyebrow>
             <PullQuote photo={data.coach.photo_url} initials={(data.coach.full_name || '?').charAt(0)} name={data.coach.full_name} role={data.coach.designation || 'Nutritional coach'}
+              accentColor={V.accent} accentSoft={V.accentSoft} borderColor={V.line}
               quote={data.coachQuote || `${coachFirst} is your dedicated coach for this plan.`} quoteIsItalic={!!data.coachQuote} />
           </Card>
         )}
@@ -410,7 +429,9 @@ export default function VitalsTemplate({ roadmapId, data, initialCheckins }: { r
           <div style={{ marginTop: 24, paddingTop: 20, borderTop: `1px solid ${V.line}` }}>
             <Eyebrow>Your why</Eyebrow>
             {data.whyReflection ? (
-              <PullQuote initials={firstName.charAt(0)} name={data.patient.full_name} role="In your own words" quote={data.whyReflection} quoteIsItalic />
+              <PullQuote initials={firstName.charAt(0)} name={data.patient.full_name} role="In your own words"
+                accentColor={V.accent} accentSoft={V.accentSoft} borderColor={V.line}
+                quote={data.whyReflection} quoteIsItalic />
             ) : (
               <p style={{ fontSize: 13, color: V.muted }}>Not filled in yet.</p>
             )}
@@ -828,6 +849,7 @@ export default function VitalsTemplate({ roadmapId, data, initialCheckins }: { r
           </div>
           <div style={{ color: V.faint, fontSize: 11, marginTop: 28 }}>Clinic Living Plus Pvt Ltd™</div>
         </Card>
+        <CanvasBlocksSection blocks={data.canvasBlocks} recipesById={Object.fromEntries(data.recipeBank.map((r) => [r.id, r]))} imagesById={Object.fromEntries(data.imageBank.map((im) => [im.id, im]))} />
       </div>
     </div>
   )

@@ -33,6 +33,7 @@ import { GROCERY_CATEGORIES } from '@/lib/foodPlates'
 import { buildGroceryList, type GroceryCategory } from '@/lib/groceryList'
 import { matchGuideImageDistinct } from '@/lib/pdf/matchGuideImage'
 import { buildInlineExportScript } from '@/lib/pdf/inlineExportScript'
+import { CanvasBlocksSection } from './CanvasBlocksSection'
 
 const DAY_MEAL_SLOTS: DayMealSlot[] = ['breakfast', 'lunch', 'dinner', 'snack', 'dessert']
 const SLOT_LABELS: Record<DayMealSlot, string> = { breakfast: 'Breakfast', lunch: 'Lunch', dinner: 'Dinner', snack: 'Snacks', dessert: 'Desserts' }
@@ -1151,6 +1152,7 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
           <div style={{ color: PALETTE.cream, opacity: 0.4, fontSize: '0.75rem', marginTop: 40, fontFamily: "'IBM Plex Mono', monospace" }}>Clinic Living Plus Pvt Ltd™</div>
         </div>
       </section>
+      <CanvasBlocksSection blocks={data.canvasBlocks} recipesById={Object.fromEntries(data.recipeBank.map((r) => [r.id, r]))} imagesById={Object.fromEntries(data.imageBank.map((im) => [im.id, im]))} />
     </div>
   )
 }

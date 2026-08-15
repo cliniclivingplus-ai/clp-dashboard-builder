@@ -27,14 +27,22 @@ type Roadmap = {
   duration_months: number
 }
 
-const DURATION_OPTIONS = [
-  { label: '1 Week', months: 0.25 },
-  { label: '2 Weeks', months: 0.5 },
-  { label: '1 Month', months: 1 },
-  { label: '2 Months', months: 2 },
-  { label: '3 Months', months: 3 },
-  { label: '6 Months', months: 6 },
-  { label: '12 Months', months: 12 },
+// Two distinct program shapes, not one flat list: a single-week plan renders
+// like a checklist (see the auto-suggested "week" template in
+// DashboardClient, the only template built for a single week), while the
+// monthly options are the full multi-month roadmap.
+const DURATION_GROUPS: { category: string; options: { label: string; months: number }[] }[] = [
+  { category: 'Single-Week Plan', options: [{ label: 'Week 1', months: 0.25 }] },
+  {
+    category: 'Monthly Program',
+    options: [
+      { label: '1 Month', months: 1 },
+      { label: '2 Months', months: 2 },
+      { label: '3 Months', months: 3 },
+      { label: '6 Months', months: 6 },
+      { label: '12 Months', months: 12 },
+    ],
+  },
 ]
 
 export default function InterpretPage() {
@@ -159,18 +167,12 @@ export default function InterpretPage() {
         </Link>
 
         {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 18, flexWrap: 'wrap', gap: 12 }}>
           <div>
             <h1 style={{ fontSize: 22, fontWeight: 700, color: '#111827' }}>Patient Dashboard</h1>
             <p style={{ color: '#6b7280', fontSize: 13, marginTop: 3 }}>Generate → edit below → share the dashboard link with your patient</p>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-            {DURATION_OPTIONS.map(({ label, months }) => (
-              <button key={label} onClick={() => setDuration(months)}
-                style={{ padding: '7px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', border: '1px solid', borderColor: duration === months ? '#538A22' : '#d1d5db', background: duration === months ? '#F2F9EC' : '#fff', color: duration === months ? '#538A22' : '#6b7280' }}>
-                {label}
-              </button>
-            ))}
             {roadmap ? (
               <>
                 <button onClick={refreshPlan} disabled={loading}
@@ -192,6 +194,25 @@ export default function InterpretPage() {
               </button>
             )}
           </div>
+        </div>
+
+        {/* Plan length, grouped by program shape rather than one flat list —
+            a single-week plan is checklist-style, monthly options are the
+            full roadmap. */}
+        <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', marginBottom: 24 }}>
+          {DURATION_GROUPS.map((group) => (
+            <div key={group.category}>
+              <div style={{ fontSize: 10.5, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 6 }}>{group.category}</div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {group.options.map(({ label, months }) => (
+                  <button key={label} onClick={() => setDuration(months)}
+                    style={{ padding: '7px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', border: '1px solid', borderColor: duration === months ? '#538A22' : '#d1d5db', background: duration === months ? '#F2F9EC' : '#fff', color: duration === months ? '#538A22' : '#6b7280' }}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
 
         {error && <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 8, padding: '10px 14px', color: '#dc2626', fontSize: 13, marginBottom: 16 }}>{error}</div>}

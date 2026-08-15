@@ -2,7 +2,7 @@
 import { useState, useMemo, useEffect, Fragment, type ReactNode } from 'react'
 import { CheckCircle2, Circle, MapPin, Utensils, Pill, ShoppingCart, HeartPulse, HelpCircle, Phone, X, ChefHat, Download, Sparkles, Star, Save, Check, Loader2, ExternalLink, Flame, CalendarCheck, Target, TrendingUp, ChevronDown, ChevronRight, Video, MessageCircle, Users, Activity, Stethoscope, Plus, Trash2, Eye, EyeOff, Moon, Droplet, Brain, Sun, Footprints, Smartphone, LinkIcon, type IconComponent } from '@/lib/kawaii/icons'
 import { Splash } from '@/lib/kawaii/Mascot'
-import { KAWAII, KAWAII_PALETTE } from '@/lib/kawaii/tokens'
+import { KAWAII } from '@/lib/kawaii/tokens'
 import { KAWAII_MOTION_CSS } from '@/lib/kawaii/motion'
 import { reshapeRoadmapIntoMonths, type WeeklyPlan } from '@/lib/pdf/reshapeRoadmap'
 import { parseNutritionistGuidelines } from '@/lib/pdf/parseNutritionistGuidelines'
@@ -15,6 +15,39 @@ import { renderMarkdownBold } from '@/lib/renderMarkdownBold'
 import { GROCERY_CATEGORIES } from '@/lib/foodPlates'
 import { buildGroceryList, type GroceryCategory } from '@/lib/groceryList'
 import AiEditButton from '@/components/AiEditButton'
+import { Rnd } from 'react-rnd'
+import { Copy, Wand2, Send } from 'lucide-react'
+import { BlockRenderer, BlockCard, BlockBody, computeCanvasHeight, CANVAS_WIDTH, type RecipeLookup, type ImageLookup } from '@/lib/blocks/BlockRenderer'
+import type { ChecklistPageBlock, BlockType, BlockLayout } from '@/lib/blocks/types'
+import { BlockInspector } from '@/components/checklist-editor/BlockInspector'
+import { CanvasBlocksSection } from './CanvasBlocksSection'
+import { PALETTES, PALETTE_LIST } from './palettes'
+
+// Same "quick add" set as the standalone checklist editor — gallery-style
+// blocks need a real pick first (offered for editing on existing blocks
+// only), and 'image' is seeded with an existing picture rather than an
+// empty id, same rule as there.
+const CANVAS_ADDABLE_TYPES: BlockType[] = ['hero', 'stat_row', 'pull_quote', 'checklist', 'icon_grid', 'goal_icons', 'chart', 'text_block', 'table', 'image']
+const CANVAS_BLOCK_LABELS: Record<BlockType, string> = {
+  hero: 'Heading', stat_row: 'Stat row', pull_quote: 'Quote', checklist: 'Checklist', icon_grid: 'Icon grid',
+  goal_icons: 'Goal icons', chart: 'Chart', text_block: 'Text', table: 'Table',
+  recipe_gallery: 'Recipe gallery', image_gallery: 'Image gallery', image: 'Image',
+}
+function defaultCanvasBlock(type: BlockType): ChecklistPageBlock {
+  const id = `blk_${Math.random().toString(36).slice(2, 10)}`
+  switch (type) {
+    case 'hero': return { id, type, title: 'New heading' }
+    case 'stat_row': return { id, type, items: [{ label: 'Label', value: '0' }] }
+    case 'pull_quote': return { id, type, text: 'A short, motivating line.' }
+    case 'checklist': return { id, type, items: [{ text: 'New item' }] }
+    case 'icon_grid': return { id, type, items: [{ topic: 'Topic', text: 'Details' }] }
+    case 'goal_icons': return { id, type, items: [{ icon: 'target', label: 'New goal' }] }
+    case 'chart': return { id, type, chartType: 'bar', data: [{ label: 'A', value: 1 }] }
+    case 'text_block': return { id, type, text: 'New text.' }
+    case 'table': return { id, type, headers: ['Column 1'], rows: [['']] }
+    default: return { id, type: 'text_block', text: '' }
+  }
+}
 
 // Every color used anywhere in this file is one of these 10 tokens — so
 // theming is just swapping which literal hex values `--clp-*` resolves to
@@ -26,40 +59,6 @@ const C = {
   accent: 'var(--clp-accent)', accentSoft: 'var(--clp-accent-soft)', rule: 'var(--clp-rule)', muted: 'var(--clp-muted)',
   green: 'var(--clp-green)', greenDeep: 'var(--clp-green-deep)',
 }
-type PaletteTokens = {
-  bg: string; paper: string; ink: string; inkSoft: string
-  accent: string; accentSoft: string; rule: string; muted: string; green: string; greenDeep: string
-}
-// A handful of coach-selectable looks — "green"/"greenDeep" stay in a green
-// family across every palette (used for done/success states throughout, so
-// swapping them would make checkmarks read wrong), while "accent" carries
-// each palette's actual personality.
-const PALETTES: Record<string, PaletteTokens> = {
-  classic: {
-    bg: '#F7EEE1', paper: '#FBF5EA', ink: '#2C2418', inkSoft: '#4A4034',
-    accent: '#B1512E', accentSoft: '#E7DAC0', rule: '#D8C6A4', muted: '#948A76', green: '#538A22', greenDeep: '#2F5214',
-  },
-  sage: {
-    bg: '#F7F3EA', paper: '#FFFFFF', ink: '#2B2B28', inkSoft: '#4F5A4A',
-    accent: '#C17A52', accentSoft: '#F3E2D3', rule: '#E4DDCD', muted: '#6B6A63', green: '#4F6F52', greenDeep: '#2E4530',
-  },
-  ocean: {
-    bg: '#EFF5F3', paper: '#FFFFFF', ink: '#1F2E2B', inkSoft: '#3F5450',
-    accent: '#2F6E73', accentSoft: '#D9EDEE', rule: '#CFE3E1', muted: '#6D8481', green: '#3F7D4A', greenDeep: '#265130',
-  },
-  berry: {
-    bg: '#FBF1EE', paper: '#FFFFFF', ink: '#2B2220', inkSoft: '#5C453F',
-    accent: '#8C4B5A', accentSoft: '#F1DCE0', rule: '#E8D3CC', muted: '#8F7A75', green: '#4C7A4F', greenDeep: '#2C4A2E',
-  },
-  kawaii: KAWAII_PALETTE,
-}
-const PALETTE_LIST: { id: string; label: string }[] = [
-  { id: 'classic', label: 'Classic' },
-  { id: 'sage', label: 'Sage' },
-  { id: 'ocean', label: 'Ocean' },
-  { id: 'berry', label: 'Berry' },
-  { id: 'kawaii', label: 'Kawaii' },
-]
 // One color per food-group slot in a meal plate — cycled by index, matches
 // across the wheel diagram and its pill chips so a category reads the same
 // color in both places.
@@ -197,6 +196,7 @@ const TOC_ITEMS: { label: string; id: string }[] = [
   { label: 'Track your progress', id: 'track' },
   { label: 'When to reach us', id: 'reach' },
   { label: 'FAQ', id: 'faq' },
+  { label: 'Custom blocks', id: 'customblocks' },
 ]
 // Sticky site header (layout.tsx) is 60px + this TOC bar is ~46px — anchored
 // sections need enough scroll-margin to clear both when jumped to, or the
@@ -866,13 +866,17 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
   const [template, setTemplate] = useState(
     ['almanac', 'pulse', 'onyx', 'week', 'vitals'].includes(data.template) ? data.template : 'classic'
   )
-  // Picking "1 Week" duration up on the interpret page auto-suggests the
-  // Week template down here (it's the only template built for a single
-  // week — every other one assumes month/quarter structure) — still just a
-  // suggestion, a coach can pick a different template right after without
-  // it snapping back, since this only re-fires when `duration` itself changes.
+  // Hard-categorized, not just suggested: the Week template only ever
+  // makes sense for a single-week plan (it's built assuming one week_number
+  // of data), and every other template assumes month/quarter structure —
+  // mixing them renders broken/empty content. Picking "Week 1" duration
+  // forces the Week template; picking any monthly duration forces off of
+  // it if it was somehow still selected (e.g. duration changed after the
+  // fact). The template picker below only ever offers the matching set.
+  const isWeekDuration = duration === 0.25
   useEffect(() => {
-    if (duration === 0.25) setTemplate('week')
+    if (isWeekDuration) setTemplate('week')
+    else setTemplate((prev) => (prev === 'week' ? 'classic' : prev))
   }, [duration])
   const [powerPoints, setPowerPoints] = useState(data.powerPoints || [])
   const [careServices, setCareServices] = useState(data.careServices || [])
@@ -891,6 +895,105 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [saveError, setSaveError] = useState('')
+
+  // "Custom blocks" — the same manual canvas editor as the standalone
+  // Checklist feature (src/lib/blocks/*), embedded as one more section on
+  // this page instead of a separate tool. Folded into this page's existing
+  // single save() flow (no separate autosave), so it saves exactly when the
+  // coach clicks "Save changes" like everything else here.
+  const [canvasBlocks, setCanvasBlocks] = useState<ChecklistPageBlock[]>(data.canvasBlocks || [])
+  const [selectedCanvasBlockId, setSelectedCanvasBlockId] = useState<string | null>(null)
+  const [canvasAddMenuOpen, setCanvasAddMenuOpen] = useState(false)
+  const [canvasAiOpen, setCanvasAiOpen] = useState(false)
+  const [canvasInstruction, setCanvasInstruction] = useState('')
+  const [canvasApplying, setCanvasApplying] = useState(false)
+  const [canvasEditError, setCanvasEditError] = useState('')
+  // Roadmaps don't curate a per-record picked set the way checklists do —
+  // any picture/recipe already in the bank is fair game, plus whatever a
+  // coach uploads directly from the inspector during this session.
+  const [localImageBank, setLocalImageBank] = useState<ImageLookup[]>(data.imageBank)
+  const recipesById = useMemo(() => Object.fromEntries(data.recipeBank.map((r) => [r.id, r as RecipeLookup])), [data.recipeBank])
+  const imagesById = useMemo(() => Object.fromEntries(localImageBank.map((im) => [im.id, im])), [localImageBank])
+
+  function updateCanvasBlocks(next: ChecklistPageBlock[]) {
+    setCanvasBlocks(next)
+  }
+  function addCanvasBlock(type: BlockType) {
+    if (type === 'image' && localImageBank.length === 0) return
+    const bottom = canvasBlocks.reduce((max, b) => Math.max(max, (b.layout?.y ?? 0) + (b.layout?.h ?? 0)), 0)
+    const block: ChecklistPageBlock = type === 'image'
+      ? { id: `blk_${Math.random().toString(36).slice(2, 10)}`, type: 'image', image_id: localImageBank[0].id }
+      : defaultCanvasBlock(type)
+    const layout: BlockLayout = { x: 0, y: bottom + 16, w: CANVAS_WIDTH, h: type === 'image' ? 240 : 140 }
+    updateCanvasBlocks([...canvasBlocks, { ...block, layout }])
+    setCanvasAddMenuOpen(false)
+    setSelectedCanvasBlockId(block.id)
+  }
+  function duplicateCanvasBlock(id: string) {
+    const block = canvasBlocks.find((b) => b.id === id)
+    if (!block) return
+    const clone: ChecklistPageBlock = { ...block, id: `blk_${Math.random().toString(36).slice(2, 10)}`, layout: block.layout ? { ...block.layout, x: block.layout.x + 20, y: block.layout.y + 20 } : undefined }
+    updateCanvasBlocks([...canvasBlocks, clone])
+    setSelectedCanvasBlockId(clone.id)
+  }
+  function deleteCanvasBlock(id: string) {
+    updateCanvasBlocks(canvasBlocks.filter((b) => b.id !== id))
+    if (selectedCanvasBlockId === id) setSelectedCanvasBlockId(null)
+  }
+  function updateCanvasBlock(updated: ChecklistPageBlock) {
+    updateCanvasBlocks(canvasBlocks.map((b) => (b.id === updated.id ? updated : b)))
+  }
+  function handleCanvasImageUploaded(image: ImageLookup) {
+    setLocalImageBank((prev) => [image, ...prev])
+  }
+
+  // Same auto-height, cascade-reflow behavior as the standalone checklist
+  // editor (see src/app/(internal)/(compass)/patients/[id]/checklist/…) —
+  // a block's box always matches its real content height, and every block
+  // below it shifts to absorb the difference, so nothing overlaps or clips.
+  const canvasContentObservers = useState(() => new Map<string, ResizeObserver>())[0]
+  function registerCanvasContentEl(id: string, el: HTMLDivElement | null) {
+    const existing = canvasContentObservers.get(id)
+    if (existing) { existing.disconnect(); canvasContentObservers.delete(id) }
+    if (!el) return
+    const observer = new ResizeObserver(() => {
+      const measured = Math.max(40, Math.round(el.scrollHeight))
+      syncCanvasBlockHeight(id, measured)
+    })
+    observer.observe(el)
+    canvasContentObservers.set(id, observer)
+  }
+  function syncCanvasBlockHeight(id: string, measuredHeight: number) {
+    setCanvasBlocks((prev) => {
+      const block = prev.find((b) => b.id === id)
+      if (!block?.layout || Math.abs(block.layout.h - measuredHeight) < 2) return prev
+      const delta = measuredHeight - block.layout.h
+      const blockY = block.layout.y
+      return prev.map((b) => {
+        if (b.id === id) return { ...b, layout: { ...b.layout!, h: measuredHeight } }
+        if (b.layout && b.layout.y > blockY) return { ...b, layout: { ...b.layout, y: Math.max(0, b.layout.y + delta) } }
+        return b
+      })
+    })
+  }
+
+  async function applyCanvasAiEdit() {
+    if (!selectedCanvasBlockId || !canvasInstruction.trim()) return
+    setCanvasApplying(true)
+    setCanvasEditError('')
+    try {
+      const res = await fetch(`/api/roadmaps/${roadmapId}/edit-canvas-block`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ block_id: selectedCanvasBlockId, instruction: canvasInstruction.trim() }),
+      })
+      const j = await res.json()
+      if (!res.ok) { setCanvasEditError(j.error || 'Could not apply that edit.'); return }
+      setCanvasBlocks((prev) => prev.map((b) => (b.id === selectedCanvasBlockId ? j.block : b)))
+      setCanvasInstruction('')
+      setCanvasAiOpen(false)
+    } catch { setCanvasEditError('Network error, try again.') }
+    finally { setCanvasApplying(false) }
+  }
 
   useEffect(() => {
     if (!editable) return
@@ -945,7 +1048,7 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
           method: 'PATCH', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             lifestyle_guidelines: lifestyleText,
-            guide_overrides: { goal_label: goalLabel, why_reflection: whyReflection, coach_quote: coachQuote, manual_recipes: manualRecipes, weekly_manual_recipes: weeklyManualRecipes, theme, template, care_services: careServices, next_appointment: nextAppointment, care_team: careTeam, hidden_sections: hiddenSections, power_points: powerPoints },
+            guide_overrides: { goal_label: goalLabel, why_reflection: whyReflection, coach_quote: coachQuote, manual_recipes: manualRecipes, weekly_manual_recipes: weeklyManualRecipes, theme, template, care_services: careServices, next_appointment: nextAppointment, care_team: careTeam, hidden_sections: hiddenSections, power_points: powerPoints, canvas_blocks: canvasBlocks },
             weekly_schedule: editWeeks.map((w) => ({ ...w, actions: (w.actions || []).map((a) => a.trim()).filter(Boolean) })),
           }),
         }),
@@ -1330,7 +1433,7 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
             Jump to section <ChevronDown size={14} style={{ transform: tocOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }} />
           </button>
           <div data-toc-panel style={{ display: tocOpen ? 'grid' : 'none', position: 'absolute', top: '100%', left: 16, marginTop: 6, gridTemplateColumns: 'repeat(2, minmax(160px, 1fr))', gap: '2px 12px', background: C.paper, border: `1px solid ${C.rule}`, borderRadius: 12, padding: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', maxHeight: '70vh', overflowY: 'auto', zIndex: 41 }}>
-            {TOC_ITEMS.filter((item) => editable || !isHidden(item.id)).map((item, i) => (
+            {TOC_ITEMS.filter((item) => (editable || !isHidden(item.id)) && (item.id !== 'customblocks' || canvasBlocks.length > 0 || editable)).map((item, i) => (
               <a key={`${item.id}-${i}`} data-toc-link href={`#${item.id}`} onClick={() => setTocOpen(false)}
                 style={{ fontSize: 12.5, fontWeight: 600, color: C.inkSoft, textDecoration: 'none', padding: '8px 9px', borderRadius: 8, whiteSpace: 'nowrap' }}>
                 {item.label}
@@ -1600,9 +1703,17 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
                   </button>
                 ))}
               </div>
-              <div style={{ ...editLabelStyle, marginTop: 14 }}>Template</div>
+              {(template === 'onyx' || template === 'almanac' || template === 'week') && (
+                <div style={{ fontSize: 11, color: C.muted, marginTop: 5 }}>
+                  {template === 'onyx' ? 'Onyx' : template === 'almanac' ? 'Almanac' : 'Week'} has its own fixed look, not affected by Plan look.
+                </div>
+              )}
+              <div style={{ ...editLabelStyle, marginTop: 14 }}>Template {isWeekDuration ? <span style={{ fontWeight: 500, textTransform: 'none', letterSpacing: 0 }}>(Single-Week Plan)</span> : <span style={{ fontWeight: 500, textTransform: 'none', letterSpacing: 0 }}>(Monthly Program)</span>}</div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                {[{ id: 'classic', label: 'Classic' }, { id: 'almanac', label: 'Almanac' }, { id: 'pulse', label: 'Pulse' }, { id: 'onyx', label: 'Onyx' }, { id: 'week', label: 'Week' }, { id: 'vitals', label: 'Vitals' }].map((t) => (
+                {(isWeekDuration
+                  ? [{ id: 'week', label: 'Week' }]
+                  : [{ id: 'classic', label: 'Classic' }, { id: 'almanac', label: 'Almanac' }, { id: 'pulse', label: 'Pulse' }, { id: 'onyx', label: 'Onyx' }, { id: 'vitals', label: 'Vitals' }]
+                ).map((t) => (
                   <button key={t.id} onClick={() => setTemplate(t.id)}
                     style={{
                       padding: '6px 14px', borderRadius: 20, cursor: 'pointer', fontSize: 12, fontWeight: 700,
@@ -1613,7 +1724,11 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
                   </button>
                 ))}
               </div>
-              <div style={{ fontSize: 11, color: C.muted, marginTop: 5 }}>Changes only what the patient sees. You always edit here in Classic, regardless of which one is picked.</div>
+              <div style={{ fontSize: 11, color: C.muted, marginTop: 5 }}>
+                {isWeekDuration
+                  ? 'A single-week plan only ever uses the checklist-style Week template.'
+                  : 'Changes only what the patient sees. You always edit here in Classic, regardless of which one is picked.'}
+              </div>
             </div>
           ) : (
             <div style={{ fontSize: 13.5, color: C.inkSoft, marginTop: 6, maxWidth: 480, marginLeft: 'auto', marginRight: 'auto' }}>{goalLabel}</div>
@@ -2374,6 +2489,101 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
               )
             })}
           </div>
+
+          {(editable || canvasBlocks.length > 0) && (
+            <div id="customblocks" {...hiddenAttrs('customblocks')} style={{ ...cardStyle, marginBottom: 0, marginTop: 18, scrollMarginTop: SECTION_SCROLL_MARGIN, ...hiddenStyle('customblocks') }}>
+              {editable && <SectionToggle hidden={isHidden('customblocks')} onToggle={() => toggleSection('customblocks')} />}
+              <div style={sectionTitleStyle}><Wand2 size={18} color={C.accent} /> Custom blocks</div>
+              {!editable ? (
+                <CanvasBlocksSection blocks={canvasBlocks} recipesById={recipesById} imagesById={imagesById} />
+              ) : (
+                <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                  <div style={{ flex: '1 1 400px', overflowX: 'auto', border: `1px dashed ${C.rule}`, borderRadius: 12, padding: 20, background: C.bg }}>
+                    <div style={{ position: 'relative', width: CANVAS_WIDTH, height: computeCanvasHeight(canvasBlocks), background: C.paper }}>
+                      {canvasBlocks.map((block) => {
+                        const l = block.layout
+                        if (!l) return null
+                        const isImage = block.type === 'image'
+                        return (
+                          <Rnd
+                            key={block.id}
+                            bounds="parent"
+                            size={{ width: l.w, height: l.h }}
+                            position={{ x: l.x, y: l.y }}
+                            enableResizing={isImage
+                              ? { left: true, right: true, top: true, bottom: true, topLeft: true, topRight: true, bottomLeft: true, bottomRight: true }
+                              : { left: true, right: true, top: false, bottom: false, topLeft: false, topRight: false, bottomLeft: false, bottomRight: false }}
+                            onDragStop={(_e, d) => updateCanvasBlock({ ...block, layout: { ...l, x: Math.max(0, d.x), y: Math.max(0, d.y) } })}
+                            onResizeStop={(_e, _dir, ref, _delta, position) => updateCanvasBlock({ ...block, layout: { ...l, w: ref.offsetWidth, h: isImage ? ref.offsetHeight : l.h, x: position.x, y: isImage ? position.y : l.y } })}
+                            style={{ zIndex: selectedCanvasBlockId === block.id ? 5 : 1 }}
+                          >
+                            <div ref={(el) => registerCanvasContentEl(block.id, el)} style={{ width: '100%', height: '100%' }} onClick={() => setSelectedCanvasBlockId(block.id)}>
+                              <BlockCard block={block} selectable selected={selectedCanvasBlockId === block.id} fill background={l.bg}>
+                                <BlockBody block={block} recipesById={recipesById} imagesById={imagesById} checkedItems={{}} />
+                              </BlockCard>
+                            </div>
+                          </Rnd>
+                        )
+                      })}
+                    </div>
+                  </div>
+
+                  <div style={{ width: 300, flexShrink: 0 }}>
+                    <div style={{ position: 'relative', marginBottom: 10 }}>
+                      <button onClick={() => setCanvasAddMenuOpen((o) => !o)}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 12px', borderRadius: 9, border: `1px solid ${C.rule}`, background: C.paper, color: C.ink, fontSize: 12.5, fontWeight: 700, cursor: 'pointer', width: '100%', justifyContent: 'center' }}>
+                        <Plus size={14} /> Add block
+                      </button>
+                      {canvasAddMenuOpen && (
+                        <div style={{ position: 'absolute', top: '110%', left: 0, right: 0, zIndex: 20, background: C.paper, border: `1px solid ${C.rule}`, borderRadius: 10, padding: 6, boxShadow: '0 8px 20px rgba(17,24,39,0.12)' }}>
+                          {CANVAS_ADDABLE_TYPES.map((t) => {
+                            const disabled = t === 'image' && localImageBank.length === 0
+                            return (
+                              <button key={t} onClick={() => !disabled && addCanvasBlock(t)} disabled={disabled} title={disabled ? 'Upload a picture to the Picture bank first' : undefined}
+                                style={{ display: 'block', width: '100%', textAlign: 'left', padding: '7px 10px', borderRadius: 7, border: 'none', background: 'none', color: disabled ? C.muted : C.ink, fontSize: 12.5, cursor: disabled ? 'not-allowed' : 'pointer' }}>
+                                {CANVAS_BLOCK_LABELS[t]}{disabled ? ' (no pictures yet)' : ''}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
+
+                    {selectedCanvasBlockId && canvasBlocks.find((b) => b.id === selectedCanvasBlockId) ? (
+                      <div style={{ background: C.paper, border: `1px solid ${C.rule}`, borderRadius: 12, padding: '14px 16px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                          <div style={{ fontSize: 12, fontWeight: 800, color: C.ink }}>{CANVAS_BLOCK_LABELS[canvasBlocks.find((b) => b.id === selectedCanvasBlockId)!.type]}</div>
+                          <div style={{ display: 'flex', gap: 10 }}>
+                            <button onClick={() => setCanvasAiOpen((o) => !o)} title="Ask AI" style={{ background: 'none', border: 'none', color: C.accent, cursor: 'pointer' }}><Wand2 size={14} /></button>
+                            <button onClick={() => duplicateCanvasBlock(selectedCanvasBlockId)} title="Duplicate" style={{ background: 'none', border: 'none', color: C.muted, cursor: 'pointer' }}><Copy size={14} /></button>
+                            <button onClick={() => deleteCanvasBlock(selectedCanvasBlockId)} title="Delete" style={{ background: 'none', border: 'none', color: '#B3261E', cursor: 'pointer' }}><Trash2 size={14} /></button>
+                          </div>
+                        </div>
+                        {canvasAiOpen && (
+                          <div style={{ marginBottom: 10, padding: 8, border: `1px solid ${C.rule}`, borderRadius: 8, background: C.bg }}>
+                            <div style={{ display: 'flex', gap: 6 }}>
+                              <input value={canvasInstruction} onChange={(e) => setCanvasInstruction(e.target.value)}
+                                onKeyDown={(e) => { if (e.key === 'Enter' && !canvasApplying) applyCanvasAiEdit() }}
+                                placeholder='e.g. "make this shorter"'
+                                style={{ flex: 1, padding: '7px 9px', borderRadius: 7, border: `1px solid ${C.rule}`, fontSize: 12.5, boxSizing: 'border-box' }} />
+                              <button onClick={applyCanvasAiEdit} disabled={canvasApplying || !canvasInstruction.trim()}
+                                style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 32, borderRadius: 7, border: 'none', background: C.accent, color: '#fff', cursor: canvasApplying ? 'not-allowed' : 'pointer', opacity: canvasApplying || !canvasInstruction.trim() ? 0.6 : 1 }}>
+                                {canvasApplying ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Send size={13} />}
+                              </button>
+                            </div>
+                            {canvasEditError && <p style={{ fontSize: 11, color: '#B3261E', marginTop: 6, marginBottom: 0 }}>{canvasEditError}</p>}
+                          </div>
+                        )}
+                        <BlockInspector block={canvasBlocks.find((b) => b.id === selectedCanvasBlockId)!} onChange={updateCanvasBlock} recipes={data.recipeBank} images={localImageBank} onImageUploaded={handleCanvasImageUploaded} />
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: 12, color: C.muted, padding: '10px 4px' }}>Click a block on the canvas to edit it.</div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {editable && (

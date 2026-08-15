@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 export const dynamic = 'force-dynamic'
-import { supabaseAdmin } from '@/lib/supabase'
+import { supabaseMrx } from '@/lib/supabaseMrx'
 
 // MicrobiomeRX patients have no email/phone/clinic id — name is the only
 // searchable field a coach has to go on, so results also carry age/sex,
@@ -10,8 +10,8 @@ export async function GET(req: NextRequest) {
   const q = req.nextUrl.searchParams.get('q')?.trim() || ''
   if (!q) return NextResponse.json([])
 
-  const { data: candidates, error } = await supabaseAdmin
-    .from('mrx_patients')
+  const { data: candidates, error } = await supabaseMrx
+    .from('patients')
     .select('id, name, age_sex, complaint, diet_type')
     .ilike('name', `%${q}%`)
     .order('name')
@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
   if (!candidates?.length) return NextResponse.json([])
 
   const ids = candidates.map((c) => c.id)
-  const { data: reports } = await supabaseAdmin.from('mrx_reports').select('patient_id').in('patient_id', ids)
+  const { data: reports } = await supabaseMrx.from('reports').select('patient_id').in('patient_id', ids)
   const counts = new Map<string, number>()
   for (const r of reports ?? []) counts.set(r.patient_id, (counts.get(r.patient_id) ?? 0) + 1)
 

@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useMemo } from 'react'
-import { Wand2, Loader2, Search, ChefHat, Image as ImageIcon } from 'lucide-react'
+import { Wand2, Loader2, Search, ChefHat, Image as ImageIcon, LayoutList, Sparkles } from 'lucide-react'
 
 const C = {
   green: '#538A22', greenDeep: '#2F5214', greenSoft: '#F2F9EC', greenBorder: '#C8E9A8',
@@ -17,6 +17,7 @@ type GuideImage = { id: string; label: string; image_url: string }
 // from there. See src/app/api/checklists/route.ts.
 export default function ChecklistCreateForm({ patientId, sessionId, onCreated }: { patientId: string; sessionId?: string; onCreated: (checklistId: string) => void }) {
   const [conditionGoal, setConditionGoal] = useState('')
+  const [template, setTemplate] = useState<'standard' | 'pictorial'>('standard')
   const [recipes, setRecipes] = useState<Recipe[]>([])
   const [images, setImages] = useState<GuideImage[]>([])
   const [selectedRecipeIds, setSelectedRecipeIds] = useState<Set<string>>(new Set())
@@ -57,6 +58,7 @@ export default function ChecklistCreateForm({ patientId, sessionId, onCreated }:
         body: JSON.stringify({
           patient_id: patientId, session_id: sessionId, condition_goal: conditionGoal.trim(),
           recipe_ids: [...selectedRecipeIds], image_ids: [...selectedImageIds],
+          style: template,
         }),
       })
       const j = await res.json()
@@ -68,6 +70,30 @@ export default function ChecklistCreateForm({ patientId, sessionId, onCreated }:
 
   return (
     <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 14, padding: '20px 22px' }}>
+      <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: C.faint, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>
+        Template
+      </label>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, marginBottom: 18 }}>
+        <button type="button" onClick={() => setTemplate('standard')}
+          style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderRadius: 10, textAlign: 'left', cursor: 'pointer',
+            border: `1.5px solid ${template === 'standard' ? C.green : C.line}`, background: template === 'standard' ? C.greenSoft : '#fff' }}>
+          <LayoutList size={18} color={template === 'standard' ? C.green : C.faint} />
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>Standard</div>
+            <div style={{ fontSize: 11, color: C.muted, marginTop: 1 }}>Mix of text, stats and checklist</div>
+          </div>
+        </button>
+        <button type="button" onClick={() => setTemplate('pictorial')}
+          style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderRadius: 10, textAlign: 'left', cursor: 'pointer',
+            border: `1.5px solid ${template === 'pictorial' ? C.green : C.line}`, background: template === 'pictorial' ? C.greenSoft : '#fff' }}>
+          <Sparkles size={18} color={template === 'pictorial' ? C.green : C.faint} />
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>Pictorial goals</div>
+            <div style={{ fontSize: 11, color: C.muted, marginTop: 1 }}>Big icons, minimal wording</div>
+          </div>
+        </button>
+      </div>
+
       <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: C.faint, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>
         Condition and what you want to treat
       </label>

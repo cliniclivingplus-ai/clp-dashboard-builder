@@ -59,7 +59,8 @@ async function searchKB(queryText: string): Promise<{ kbContext: string; kbSourc
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
-    const { patient_id, session_id, condition_goal, recipe_ids = [], image_ids = [] } = body
+    const { patient_id, session_id, condition_goal, recipe_ids = [], image_ids = [], style = 'standard' } = body
+    const pictorial = style === 'pictorial'
     if (!patient_id || typeof condition_goal !== 'string' || !condition_goal.trim()) {
       return NextResponse.json({ error: 'patient_id and condition_goal are required' }, { status: 400 })
     }
@@ -103,17 +104,22 @@ Block shapes (return exactly these fields per type, extra fields are ignored):
 - pull_quote: {type, text, attribution?} — a short, motivating goal statement
 - checklist: {type, title?, items:[{text}]} — THE actual goal checklist for the patient, concrete and actionable
 - icon_grid: {type, title?, items:[{icon?, topic, text}]} — icon from the same list above
+- goal_icons: {type, title?, items:[{icon, label}]} — pictorial, near-wordless: icon is required (not optional), label is 2-4 words only, never a sentence
 - recipe_gallery: {type, title?, recipe_ids:[...]} — recipe_ids MUST be a subset of the picked recipe ids listed below, never invented
 - image_gallery: {type, title?, image_ids:[...]} — image_ids MUST be a subset of the picked image ids listed below, never invented
 - chart: {type, title?, chartType: "bar"|"donut", data:[{label, value}]} — ONLY include a chart block if the condition/goal text below contains real, explicit numbers to plot. If there are no real numbers, do not include any chart block at all. Never invent a number.
 - text_block: {type, title?, text}
+- table: {type, title?, headers:[...], rows:[[...cells matching headers length]]} — only use for genuinely tabular data (e.g. a dosing schedule), never invented numbers/cells
+- image: {type, image_id, caption?} — image_id MUST be one of the picked image ids listed below, never invented
 
 HARD RULES:
 - Never fabricate a clinical claim, lab value, or statistic that isn't in the condition/goal text or the knowledge base excerpts below.
 - Never invent a recipe or image — only reference the exact ids given below.
 - Keep it scoped to the next consultation, not a multi-month plan — no "month 1/2/3" or "week" language.
 - Never use an em dash (—); use a comma, period, or "and" instead.
-- Return STRICT JSON only: {"title": "...", "blocks": [...]}. 4 to 8 blocks, ordered sensibly (hero first).`,
+- Return STRICT JSON only: {"title": "...", "blocks": [...]}. 4 to 8 blocks, ordered sensibly (hero first).
+${pictorial ? `
+PICTORIAL MODE (requested by the coach): favor "goal_icons" over every other block wherever the content is a goal, habit, or focus area, one icon tile per goal, label only, no descriptive sentence. Use "checklist" only for the literal actionable to-do items, and keep each item a short phrase (3-6 words), not a sentence. Do NOT use "text_block" at all, and use "pull_quote" only if the condition/goal text itself contains a short quote-worthy line. Minimize every other block's wording; the page should read almost entirely through icons and short labels.` : ''}`,
         },
         {
           role: 'user',
