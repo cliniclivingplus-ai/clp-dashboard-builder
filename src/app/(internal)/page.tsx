@@ -11,7 +11,10 @@ const C = {
 // separate patient records, only manually linkable via the MicrobiomeRX
 // tab on a CLP Compass patient's page — see MicrobiomeLinkTab.tsx). This
 // page is just a launcher, not an integration layer.
-const TOOLS = [
+const TOOLS: {
+  key: string; name: string; tagline: string; description: string
+  icon: typeof Compass; href: string | null; external: boolean; status: 'live' | 'soon'
+}[] = [
   {
     key: 'compass',
     name: 'CLP Compass',
@@ -34,13 +37,13 @@ const TOOLS = [
   },
   {
     key: 'blood',
-    name: 'Blood Report Analyzer',
+    name: 'Blood Panel Analyzer',
     tagline: 'Blood panel analysis',
-    description: 'Structured findings and recommendations from a patient’s blood work.',
+    description: 'Upload any blood report (any lab, PDF or photo) and get structured findings and recommendations. Opens as a separate app.',
     icon: FlaskConical,
-    href: null,
-    external: false,
-    status: 'soon' as const,
+    href: 'https://blood-panel-analyzer.vercel.app',
+    external: true,
+    status: 'live' as const,
   },
 ]
 
