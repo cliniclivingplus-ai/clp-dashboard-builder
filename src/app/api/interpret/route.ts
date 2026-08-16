@@ -221,20 +221,20 @@ Use "you" throughout. Reference their real details. No generic health advice.` }
     const lifestyleRes = await groq.chat.completions.create({
       model: 'llama-3.1-8b-instant',
       messages: [
-        { role: 'system', content: 'Clinical nutritionist. Write 4 lifestyle prescriptions directly to the patient. Each must reference a specific fact from their consultation. No generic advice. Never use an em dash (—); use a comma, period, or "and" instead.' },
+        { role: 'system', content: 'Clinical nutritionist. Write 4 lifestyle instructions directly to the patient, each a single short action, like a to-do list. Never use an em dash (—); use a comma, period, or "and" instead.' },
         { role: 'user', content: `PATIENT FACTS:
 ${patientFacts}
 
 KB:
 ${kbContext || 'Use expertise.'}
 
-Write 4 lifestyle changes for this specific patient.
+Write 4 lifestyle actions for this specific patient, chosen to fit their actual condition and habits from the facts above.
 Each must:
-- Start with • 
-- Reference their actual habit/pattern (e.g. "Your habit of sleeping at 1am..." not "You should sleep earlier")
-- Give a specific, actionable change
-- Explain why in 1 sentence based on their condition
-- Be 20-25 words
+- Start with •
+- Be ONE short, concrete action only, e.g. "Wake up before sunlight." or "Take a 15-minute walk after dinner."
+- Be a plain instruction, not a sentence about the patient or their habits
+- No explanation, no reasoning, no "because"
+- Under 8 words
 
 Return only 4 bullet points. No intro, no outro.` }
       ],
