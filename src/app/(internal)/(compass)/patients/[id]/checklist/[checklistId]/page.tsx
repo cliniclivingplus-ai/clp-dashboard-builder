@@ -65,6 +65,23 @@ export default function ChecklistEditorPage() {
   const inputRef = useRef<HTMLInputElement | null>(null)
   const blockRefs = useRef<Map<string, HTMLDivElement>>(new Map())
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // The canvas is a fixed 720px design surface, but this panel is often
+  // narrower — without this it just overflowed with a horizontal scrollbar
+  // and blocks looked like they were floating in mostly-empty space. Scaling
+  // the whole canvas down as one unit (same trick as ScaledCanvasView, the
+  // read-only render) keeps blocks visible and proportioned; react-rnd's own
+  // `scale` prop compensates its drag/resize math for the CSS transform.
+  const canvasEditorRef = useRef<HTMLDivElement | null>(null)
+  const [canvasEditorScale, setCanvasEditorScale] = useState(1)
+  useEffect(() => {
+    const el = canvasEditorRef.current
+    if (!el) return
+    const update = () => setCanvasEditorScale(Math.min(1, el.clientWidth / CANVAS_WIDTH))
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [mode])
 
   useEffect(() => {
     let alive = true
@@ -237,15 +254,29 @@ export default function ChecklistEditorPage() {
       if (!prev) return prev
       const block = prev.blocks.find((b) => b.id === id)
       if (!block?.layout || Math.abs(block.layout.h - measuredHeight) < 2) return prev
-      const delta = measuredHeight - block.layout.h
-      const blockY = block.layout.y
-      const next = prev.blocks.map((b) => {
-        if (b.id === id) return { ...b, layout: { ...b.layout!, h: measuredHeight } }
-        if (b.layout && b.layout.y > blockY) return { ...b, layout: { ...b.layout, y: Math.max(0, b.layout.y + delta) } }
-        return b
-      })
+      const next = applyLayoutCascade(prev.blocks, id, { h: measuredHeight })
       scheduleSave(next)
       return { ...prev, blocks: next }
+    })
+  }
+  // Any manual layout change — resizing a block taller, or just dragging it
+  // to a new spot — shifts every block below by however far this block's
+  // own bottom edge moved, so moving or growing one block always makes room
+  // instead of overlapping whatever comes after it. (Free-resized blocks
+  // like `image` also need this for height itself: their content div always
+  // fills the box exactly, so the ResizeObserver-driven auto-height sync
+  // above never sees a mismatch to react to.)
+  function applyLayoutCascade(blocks: ChecklistPageBlock[], id: string, patch: Partial<BlockLayout>) {
+    const block = blocks.find((b) => b.id === id)
+    if (!block?.layout) return blocks
+    const oldY = block.layout.y
+    const oldBottom = block.layout.y + block.layout.h
+    const newLayout = { ...block.layout, ...patch }
+    const delta = (newLayout.y + newLayout.h) - oldBottom
+    return blocks.map((b) => {
+      if (b.id === id) return { ...b, layout: newLayout }
+      if (delta !== 0 && b.layout && b.layout.y > oldY) return { ...b, layout: { ...b.layout, y: Math.max(0, b.layout.y + delta) } }
+      return b
     })
   }
 
@@ -326,36 +357,39 @@ export default function ChecklistEditorPage() {
 
       {mode === 'manual' && (
         <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start' }}>
-          <div style={{ flex: 1, overflowX: 'auto', border: `1px dashed ${C.line}`, borderRadius: 12, padding: 20, background: '#FAFAF8' }}>
-            <div style={{ position: 'relative', width: CANVAS_WIDTH, height: computeCanvasHeight(checklist.blocks), background: '#fff' }}>
-              {checklist.blocks.map((block) => {
-                const l = block.layout
-                if (!l) return null
-                // Images have no single "correct" content-driven height —
-                // let them resize freely on every edge. Every other block
-                // type stays width-only, with height auto-synced to content.
-                const isImage = block.type === 'image'
-                return (
-                  <Rnd
-                    key={block.id}
-                    bounds="parent"
-                    size={{ width: l.w, height: l.h }}
-                    position={{ x: l.x, y: l.y }}
-                    enableResizing={isImage
-                      ? { left: true, right: true, top: true, bottom: true, topLeft: true, topRight: true, bottomLeft: true, bottomRight: true }
-                      : { left: true, right: true, top: false, bottom: false, topLeft: false, topRight: false, bottomLeft: false, bottomRight: false }}
-                    onDragStop={(_e, d) => updateBlock({ ...block, layout: { ...l, x: Math.max(0, d.x), y: Math.max(0, d.y) } })}
-                    onResizeStop={(_e, _dir, ref, _delta, position) => updateBlock({ ...block, layout: { ...l, w: ref.offsetWidth, h: isImage ? ref.offsetHeight : l.h, x: position.x, y: isImage ? position.y : l.y } })}
-                    style={{ zIndex: selectedBlockId === block.id ? 5 : 1 }}
-                  >
-                    <div ref={(el) => registerContentEl(block.id, el)} style={{ width: '100%', height: '100%' }} onClick={() => setSelectedBlockId(block.id)}>
-                      <BlockCard block={block} selectable selected={selectedBlockId === block.id} fill background={l.bg}>
-                        <BlockBody block={block} recipesById={recipesById} imagesById={imagesById} checkedItems={{}} />
-                      </BlockCard>
-                    </div>
-                  </Rnd>
-                )
-              })}
+          <div ref={canvasEditorRef} style={{ flex: 1, minWidth: 0, border: `1px dashed ${C.line}`, borderRadius: 12, padding: 20, background: '#FAFAF8' }}>
+            <div style={{ width: '100%', height: computeCanvasHeight(checklist.blocks) * canvasEditorScale }}>
+              <div style={{ position: 'relative', width: CANVAS_WIDTH, height: computeCanvasHeight(checklist.blocks), background: '#fff', transform: `scale(${canvasEditorScale})`, transformOrigin: 'top left' }}>
+                {checklist.blocks.map((block) => {
+                  const l = block.layout
+                  if (!l) return null
+                  // Images have no single "correct" content-driven height —
+                  // let them resize freely on every edge. Every other block
+                  // type stays width-only, with height auto-synced to content.
+                  const isImage = block.type === 'image'
+                  return (
+                    <Rnd
+                      key={block.id}
+                      bounds="parent"
+                      scale={canvasEditorScale}
+                      size={{ width: l.w, height: l.h }}
+                      position={{ x: l.x, y: l.y }}
+                      enableResizing={isImage
+                        ? { left: true, right: true, top: true, bottom: true, topLeft: true, topRight: true, bottomLeft: true, bottomRight: true }
+                        : { left: true, right: true, top: false, bottom: false, topLeft: false, topRight: false, bottomLeft: false, bottomRight: false }}
+                      onDragStop={(_e, d) => updateBlocks(applyLayoutCascade(checklist.blocks, block.id, { x: Math.max(0, d.x), y: Math.max(0, d.y) }))}
+                      onResizeStop={(_e, _dir, ref, _delta, position) => updateBlocks(applyLayoutCascade(checklist.blocks, block.id, { w: ref.offsetWidth, h: isImage ? ref.offsetHeight : l.h, x: position.x, y: isImage ? position.y : l.y }))}
+                      style={{ zIndex: selectedBlockId === block.id ? 5 : 1 }}
+                    >
+                      <div ref={(el) => registerContentEl(block.id, el)} style={{ width: '100%', height: '100%' }} onClick={() => setSelectedBlockId(block.id)}>
+                        <BlockCard block={block} selectable selected={selectedBlockId === block.id} fill background={l.bg}>
+                          <BlockBody block={block} recipesById={recipesById} imagesById={imagesById} checkedItems={{}} />
+                        </BlockCard>
+                      </div>
+                    </Rnd>
+                  )
+                })}
+              </div>
             </div>
           </div>
 

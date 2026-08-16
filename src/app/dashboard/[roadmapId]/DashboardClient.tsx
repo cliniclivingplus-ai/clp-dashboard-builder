@@ -1,5 +1,5 @@
 'use client'
-import { useState, useMemo, useEffect, Fragment, type ReactNode } from 'react'
+import { useState, useMemo, useEffect, useRef, Fragment, type ReactNode } from 'react'
 import { CheckCircle2, Circle, MapPin, Utensils, Pill, ShoppingCart, HeartPulse, HelpCircle, Phone, X, ChefHat, Download, Sparkles, Star, Save, Check, Loader2, ExternalLink, Flame, CalendarCheck, Target, TrendingUp, ChevronDown, ChevronRight, Video, MessageCircle, Users, Activity, Stethoscope, Plus, Trash2, Eye, EyeOff, Moon, Droplet, Brain, Sun, Footprints, Smartphone, LinkIcon, type IconComponent } from '@/lib/kawaii/icons'
 import { Splash } from '@/lib/kawaii/Mascot'
 import { KAWAII } from '@/lib/kawaii/tokens'
@@ -914,6 +914,24 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
   const [localImageBank, setLocalImageBank] = useState<ImageLookup[]>(data.imageBank)
   const recipesById = useMemo(() => Object.fromEntries(data.recipeBank.map((r) => [r.id, r as RecipeLookup])), [data.recipeBank])
   const imagesById = useMemo(() => Object.fromEntries(localImageBank.map((im) => [im.id, im])), [localImageBank])
+  // The canvas is a fixed 720px design surface, but this editor sits in a
+  // panel that's often narrower (mobile, or a shared-width sidebar layout)
+  // — without this it just overflowed with a horizontal scrollbar and the
+  // single block looked like it was floating in mostly-empty space. Scaling
+  // the whole canvas down as one unit (same trick as ScaledCanvasView, the
+  // read-only render) keeps blocks visible and proportioned; react-rnd's own
+  // `scale` prop compensates its drag/resize math for the CSS transform.
+  const canvasEditorRef = useRef<HTMLDivElement | null>(null)
+  const [canvasEditorScale, setCanvasEditorScale] = useState(1)
+  useEffect(() => {
+    const el = canvasEditorRef.current
+    if (!el) return
+    const update = () => setCanvasEditorScale(Math.min(1, el.clientWidth / CANVAS_WIDTH))
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
 
   function updateCanvasBlocks(next: ChecklistPageBlock[]) {
     setCanvasBlocks(next)
@@ -967,13 +985,27 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
     setCanvasBlocks((prev) => {
       const block = prev.find((b) => b.id === id)
       if (!block?.layout || Math.abs(block.layout.h - measuredHeight) < 2) return prev
-      const delta = measuredHeight - block.layout.h
-      const blockY = block.layout.y
-      return prev.map((b) => {
-        if (b.id === id) return { ...b, layout: { ...b.layout!, h: measuredHeight } }
-        if (b.layout && b.layout.y > blockY) return { ...b, layout: { ...b.layout, y: Math.max(0, b.layout.y + delta) } }
-        return b
-      })
+      return applyCanvasLayoutCascade(prev, id, { h: measuredHeight })
+    })
+  }
+  // Any manual layout change — resizing a block taller, or just dragging it
+  // to a new spot — shifts every block below by however far this block's
+  // own bottom edge moved, so moving or growing one block always makes room
+  // instead of overlapping whatever comes after it. (Free-resized blocks
+  // like `image` also need this for height itself: their content div always
+  // fills the box exactly, so the ResizeObserver-driven auto-height sync
+  // below never sees a mismatch to react to.)
+  function applyCanvasLayoutCascade(blocks: ChecklistPageBlock[], id: string, patch: Partial<BlockLayout>) {
+    const block = blocks.find((b) => b.id === id)
+    if (!block?.layout) return blocks
+    const oldY = block.layout.y
+    const oldBottom = block.layout.y + block.layout.h
+    const newLayout = { ...block.layout, ...patch }
+    const delta = (newLayout.y + newLayout.h) - oldBottom
+    return blocks.map((b) => {
+      if (b.id === id) return { ...b, layout: newLayout }
+      if (delta !== 0 && b.layout && b.layout.y > oldY) return { ...b, layout: { ...b.layout, y: Math.max(0, b.layout.y + delta) } }
+      return b
     })
   }
 
@@ -2498,33 +2530,36 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
                 <CanvasBlocksSection blocks={canvasBlocks} recipesById={recipesById} imagesById={imagesById} />
               ) : (
                 <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-                  <div style={{ flex: '1 1 400px', overflowX: 'auto', border: `1px dashed ${C.rule}`, borderRadius: 12, padding: 20, background: C.bg }}>
-                    <div style={{ position: 'relative', width: CANVAS_WIDTH, height: computeCanvasHeight(canvasBlocks), background: C.paper }}>
-                      {canvasBlocks.map((block) => {
-                        const l = block.layout
-                        if (!l) return null
-                        const isImage = block.type === 'image'
-                        return (
-                          <Rnd
-                            key={block.id}
-                            bounds="parent"
-                            size={{ width: l.w, height: l.h }}
-                            position={{ x: l.x, y: l.y }}
-                            enableResizing={isImage
-                              ? { left: true, right: true, top: true, bottom: true, topLeft: true, topRight: true, bottomLeft: true, bottomRight: true }
-                              : { left: true, right: true, top: false, bottom: false, topLeft: false, topRight: false, bottomLeft: false, bottomRight: false }}
-                            onDragStop={(_e, d) => updateCanvasBlock({ ...block, layout: { ...l, x: Math.max(0, d.x), y: Math.max(0, d.y) } })}
-                            onResizeStop={(_e, _dir, ref, _delta, position) => updateCanvasBlock({ ...block, layout: { ...l, w: ref.offsetWidth, h: isImage ? ref.offsetHeight : l.h, x: position.x, y: isImage ? position.y : l.y } })}
-                            style={{ zIndex: selectedCanvasBlockId === block.id ? 5 : 1 }}
-                          >
-                            <div ref={(el) => registerCanvasContentEl(block.id, el)} style={{ width: '100%', height: '100%' }} onClick={() => setSelectedCanvasBlockId(block.id)}>
-                              <BlockCard block={block} selectable selected={selectedCanvasBlockId === block.id} fill background={l.bg}>
-                                <BlockBody block={block} recipesById={recipesById} imagesById={imagesById} checkedItems={{}} />
-                              </BlockCard>
-                            </div>
-                          </Rnd>
-                        )
-                      })}
+                  <div ref={canvasEditorRef} style={{ flex: '1 1 400px', minWidth: 0, border: `1px dashed ${C.rule}`, borderRadius: 12, padding: 20, background: C.bg }}>
+                    <div style={{ width: '100%', height: computeCanvasHeight(canvasBlocks) * canvasEditorScale }}>
+                      <div style={{ position: 'relative', width: CANVAS_WIDTH, height: computeCanvasHeight(canvasBlocks), background: C.paper, transform: `scale(${canvasEditorScale})`, transformOrigin: 'top left' }}>
+                        {canvasBlocks.map((block) => {
+                          const l = block.layout
+                          if (!l) return null
+                          const isImage = block.type === 'image'
+                          return (
+                            <Rnd
+                              key={block.id}
+                              bounds="parent"
+                              scale={canvasEditorScale}
+                              size={{ width: l.w, height: l.h }}
+                              position={{ x: l.x, y: l.y }}
+                              enableResizing={isImage
+                                ? { left: true, right: true, top: true, bottom: true, topLeft: true, topRight: true, bottomLeft: true, bottomRight: true }
+                                : { left: true, right: true, top: false, bottom: false, topLeft: false, topRight: false, bottomLeft: false, bottomRight: false }}
+                              onDragStop={(_e, d) => updateCanvasBlocks(applyCanvasLayoutCascade(canvasBlocks, block.id, { x: Math.max(0, d.x), y: Math.max(0, d.y) }))}
+                              onResizeStop={(_e, _dir, ref, _delta, position) => updateCanvasBlocks(applyCanvasLayoutCascade(canvasBlocks, block.id, { w: ref.offsetWidth, h: isImage ? ref.offsetHeight : l.h, x: position.x, y: isImage ? position.y : l.y }))}
+                              style={{ zIndex: selectedCanvasBlockId === block.id ? 5 : 1 }}
+                            >
+                              <div ref={(el) => registerCanvasContentEl(block.id, el)} style={{ width: '100%', height: '100%' }} onClick={() => setSelectedCanvasBlockId(block.id)}>
+                                <BlockCard block={block} selectable selected={selectedCanvasBlockId === block.id} fill background={l.bg}>
+                                  <BlockBody block={block} recipesById={recipesById} imagesById={imagesById} checkedItems={{}} />
+                                </BlockCard>
+                              </div>
+                            </Rnd>
+                          )
+                        })}
+                      </div>
                     </div>
                   </div>
 
