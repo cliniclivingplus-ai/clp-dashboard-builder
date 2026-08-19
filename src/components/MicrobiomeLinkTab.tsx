@@ -11,7 +11,7 @@ const C = {
 type LinkedPatient = { id: string; name: string; age_sex: string | null; complaint: string | null; diet_type: string | null }
 type PrescriptionItem = { section: 'supplements' | 'therapies' | 'dietary'; name: string; detail: string; doctorNote: string; contraindications: string }
 type Prescription = { approvedAt: string; clinicalImpression: string; doctorNotes: string; items: PrescriptionItem[] }
-type Linked = { linkId: string; linkedAt: string; patient: LinkedPatient; reportCount: number; prescription: Prescription | null }
+type Linked = { linkId: string; linkedAt: string; patient: LinkedPatient; reportCount: number; prescription: Prescription | null; autoLinked?: boolean }
 type Candidate = { id: string; name: string; age_sex: string | null; complaint: string | null; diet_type: string | null; reportCount: number }
 
 function fmtDate(d: string) {
@@ -143,7 +143,12 @@ export default function MicrobiomeLinkTab({ patientId }: { patientId: string }) 
               <Dna size={19} color={C.green} />
             </div>
             <div>
-              <div style={{ fontSize: 14.5, fontWeight: 700, color: C.ink }}>{linked.patient.name}</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                <span style={{ fontSize: 14.5, fontWeight: 700, color: C.ink }}>{linked.patient.name}</span>
+                {linked.autoLinked && (
+                  <span style={{ fontSize: 10, fontWeight: 700, color: C.green, background: C.greenSoft, padding: '2px 7px', borderRadius: 999 }}>Auto-linked via Clinic ID</span>
+                )}
+              </div>
               <div style={{ fontSize: 12.5, color: C.muted, marginTop: 2 }}>
                 {[linked.patient.age_sex, linked.patient.complaint].filter(Boolean).join(' · ') || 'No further details on file'}
               </div>

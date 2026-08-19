@@ -15,7 +15,7 @@ type SnapshotRow = {
 }
 type Linked = {
   linkId: string; linkedAt: string; patient: LinkedPatient; reportCount: number
-  snapshot: SnapshotRow[]; aiTakeaway: string | null
+  snapshot: SnapshotRow[]; aiTakeaway: string | null; autoLinked?: boolean
 }
 type Candidate = { id: string; name: string; age_sex: string | null; notes: string | null; reportCount: number }
 
@@ -159,7 +159,12 @@ export default function BloodLinkTab({ patientId }: { patientId: string }) {
               <Droplets size={19} color={C.danger} />
             </div>
             <div>
-              <div style={{ fontSize: 14.5, fontWeight: 700, color: C.ink }}>{linked.patient.name}</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                <span style={{ fontSize: 14.5, fontWeight: 700, color: C.ink }}>{linked.patient.name}</span>
+                {linked.autoLinked && (
+                  <span style={{ fontSize: 10, fontWeight: 700, color: C.danger, background: C.dangerSoft, padding: '2px 7px', borderRadius: 999 }}>Auto-linked via Clinic ID</span>
+                )}
+              </div>
               <div style={{ fontSize: 12.5, color: C.muted, marginTop: 2 }}>
                 {[linked.patient.age_sex, linked.patient.notes].filter(Boolean).join(' · ') || 'No further details on file'}
               </div>

@@ -52,7 +52,30 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     .eq('clp_patient_id', id)
     .maybeSingle()
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  if (!link) return NextResponse.json({ linked: null })
+
+  if (!link) {
+    // No explicit link yet — if this CLP patient has a Clinic ID and a
+    // MicrobiomeRX patient with that same Clinic ID exists (only possible
+    // for reports uploaded after MicrobiomeRX started collecting Clinic ID
+    // at upload time), link them automatically instead of making the coach
+    // search by name. Falls through to "not linked" otherwise.
+    const { data: clpPatient } = await supabaseAdmin.from('patients').select('clinic_patient_id').eq('id', id).maybeSingle()
+    if (clpPatient?.clinic_patient_id) {
+      const { data: match } = await supabaseMrx.from('patients').select('id').eq('clinic_id', clpPatient.clinic_patient_id).maybeSingle()
+      if (match) {
+        const { data: newLink, error: linkError } = await supabaseAdmin
+          .from('mrx_patient_links')
+          .insert({ clp_patient_id: id, mrx_patient_id: match.id })
+          .select('id, mrx_patient_id, linked_at')
+          .single()
+        if (!linkError && newLink) {
+          const { patient, reportCount, prescription } = await fetchLinkedPatient(newLink.mrx_patient_id)
+          return NextResponse.json({ linked: { linkId: newLink.id, linkedAt: newLink.linked_at, patient, reportCount, prescription, autoLinked: true } })
+        }
+      }
+    }
+    return NextResponse.json({ linked: null })
+  }
 
   const { patient, reportCount, prescription } = await fetchLinkedPatient(link.mrx_patient_id)
   return NextResponse.json({ linked: { linkId: link.id, linkedAt: link.linked_at, patient, reportCount, prescription } })

@@ -35,7 +35,30 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     .eq('clp_patient_id', id)
     .maybeSingle()
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  if (!link) return NextResponse.json({ linked: null })
+
+  if (!link) {
+    // No explicit link yet — if this CLP patient has a Clinic ID and a
+    // Blood Panel Analyzer patient with that same Clinic ID exists, link
+    // them automatically rather than making the coach search by name.
+    // Falls through to "not linked" (name search) if no Clinic ID is set
+    // or no match is found.
+    const { data: clpPatient } = await supabaseAdmin.from('patients').select('clinic_patient_id').eq('id', id).maybeSingle()
+    if (clpPatient?.clinic_patient_id) {
+      const { data: match } = await supabaseBlood.from('patients').select('id').eq('clinic_id', clpPatient.clinic_patient_id).maybeSingle()
+      if (match) {
+        const { data: newLink, error: linkError } = await supabaseAdmin
+          .from('blood_patient_links')
+          .insert({ clp_patient_id: id, blood_patient_id: match.id })
+          .select('id, blood_patient_id, linked_at')
+          .single()
+        if (!linkError && newLink) {
+          const { patient, reportCount, snapshot, aiTakeaway } = await fetchSnapshot(newLink.blood_patient_id)
+          return NextResponse.json({ linked: { linkId: newLink.id, linkedAt: newLink.linked_at, patient, reportCount, snapshot, aiTakeaway, autoLinked: true } })
+        }
+      }
+    }
+    return NextResponse.json({ linked: null })
+  }
 
   const { patient, reportCount, snapshot, aiTakeaway } = await fetchSnapshot(link.blood_patient_id)
   return NextResponse.json({ linked: { linkId: link.id, linkedAt: link.linked_at, patient, reportCount, snapshot, aiTakeaway } })
