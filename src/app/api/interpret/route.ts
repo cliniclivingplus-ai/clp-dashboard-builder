@@ -220,7 +220,8 @@ export async function POST(req: NextRequest) {
     // This is the key step — pull exact facts before generating
     console.log('Step 1: Extracting patient facts...')
     const factsRes = await groq.chat.completions.create({
-      model: 'llama-3.1-8b-instant',
+      model: 'openai/gpt-oss-20b',
+      reasoning_effort: 'low',
       messages: [
         { role: 'system', content: 'Extract specific clinical facts from the consultation. Return only a bullet list of specific, measurable, named facts. No generalisations. Only what is explicitly stated. Never use an em dash (—); use a comma, period, or "and" instead.' },
         { role: 'user', content: `Patient: ${patient.full_name}, ${patient.gender ?? ''}, Concern: ${patient.primary_concern}
@@ -248,14 +249,15 @@ ${mrxPrescriptionBlock ? '- Every doctor-approved supplement, therapy, and dieta
 Return as a bullet list. Every point must be specific and sourced from the data above. NO generalisations.` }
       ],
       temperature: 0.1,
-      max_tokens: 600,
+      max_tokens: 900,
     })
     const patientFacts = factsRes.choices[0]?.message?.content?.trim() ?? ''
     console.log('Facts extracted:', patientFacts.slice(0, 200))
 
     // ── STEP 2: Overview ─────────────────────────────────────
     const overviewRes = await groq.chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
+      model: 'openai/gpt-oss-120b',
+      reasoning_effort: 'low',
       messages: [
         { role: 'system', content: `You are ${patient.full_name}'s treating nutritionist at Clinic Living Plus. Write directly to her/him.
 STRICT RULES:
@@ -280,13 +282,14 @@ Paragraph 2: Tell them exactly what will change over ${duration_months} months �
 Use "you" throughout. Reference their real details. No generic health advice.` }
       ],
       temperature: 0.5,
-      max_tokens: 400,
+      max_tokens: 650,
     })
     const overview = overviewRes.choices[0]?.message?.content?.trim() ?? ''
 
     // ── STEP 3: Lifestyle guidelines ─────────────────────────
     const lifestyleRes = await groq.chat.completions.create({
-      model: 'llama-3.1-8b-instant',
+      model: 'openai/gpt-oss-20b',
+      reasoning_effort: 'low',
       messages: [
         { role: 'system', content: 'Clinical nutritionist. Write 4 lifestyle instructions directly to the patient, each a single short action, like a to-do list. Never use an em dash (—); use a comma, period, or "and" instead.' },
         { role: 'user', content: `PATIENT FACTS:
@@ -306,13 +309,14 @@ Each must:
 Return only 4 bullet points. No intro, no outro.` }
       ],
       temperature: 0.3,
-      max_tokens: 300,
+      max_tokens: 500,
     })
     const lifestyle_guidelines = lifestyleRes.choices[0]?.message?.content?.trim() ?? ''
 
     // ── STEP 4: Clinical notes ────────────────────────────────
     const clinicalRes = await groq.chat.completions.create({
-      model: 'llama-3.1-8b-instant',
+      model: 'openai/gpt-oss-20b',
+      reasoning_effort: 'low',
       messages: [
         { role: 'system', content: 'Clinical nutritionist writing notes. Use only patient facts and KB. Be specific and clinical. Never use an em dash (—); use a comma, period, or "and" instead.' },
         { role: 'user', content: `PATIENT FACTS:
@@ -330,12 +334,16 @@ Write 4 clinical notes:
 Each starts with •. Specific to this patient. No generic statements.` }
       ],
       temperature: 0.2,
-      max_tokens: 800, // was 400 — four multi-bullet sections (biomarkers,
-      // diet protocol, supplements, red flags) reliably ran out of budget
-      // mid-sentence on the last section (observed: "Red flags" cut off at
-      // "Monitor Kalika" with nothing after it). This is now patient-facing
-      // (Supplements + When-to-reach-us PDF pages), so a truncated bullet
-      // isn't just an internal-notes annoyance anymore.
+      max_tokens: 1200, // was 400, raised to 800 after four multi-bullet
+      // sections (biomarkers, diet protocol, supplements, red flags)
+      // reliably ran out of budget mid-sentence on the last section
+      // (observed: "Red flags" cut off at "Monitor Kalika" with nothing
+      // after it) — this is patient-facing (Supplements + When-to-reach-us
+      // PDF pages), so truncation isn't just an internal-notes annoyance.
+      // Raised again to 1200 on the openai/gpt-oss-20b migration: it's a
+      // reasoning model whose hidden reasoning tokens also count against
+      // max_tokens (mitigated with reasoning_effort:'low' below, but still
+      // needs more headroom than the old non-reasoning llama model did).
     })
     const nutritionist_guidelines = clinicalRes.choices[0]?.message?.content?.trim() ?? ''
 
@@ -369,7 +377,8 @@ Each starts with •. Specific to this patient. No generic statements.` }
     async function generateWeeklyChunk(startWeek: number, endWeek: number): Promise<unknown[]> {
       const weeksInChunk = endWeek - startWeek + 1
       const res = await groq.chat.completions.create({
-        model: 'llama-3.3-70b-versatile',
+        model: 'openai/gpt-oss-120b',
+        reasoning_effort: 'low',
         messages: [
           { role: 'system', content: 'Return only a valid JSON array. No markdown. Write cause and actions directly to the patient using their specific facts. Never write generic health advice. Never use an em dash (—) anywhere in the text; use a comma, period, or "and" instead.' },
           { role: 'user', content: `PATIENT FACTS (the only source of truth — use these specific details):
@@ -429,7 +438,12 @@ RULES FOR "days" (daily escalation within the week):
 Exactly ${weeksInChunk} items, week_number ${startWeek} through ${endWeek}. Each week must address a different physiological system or mechanism. Every week needs its own complete "days" array — never omit it or leave it shorter than 7 entries.` }
         ],
         temperature: 0.3,
-        max_tokens: Math.min(8000, weeksInChunk * 850 + 300),
+        // Raised per-week budget (was 850+300) on the openai/gpt-oss-120b
+        // migration to leave headroom for hidden reasoning tokens, which
+        // count against max_tokens on this model even at reasoning_effort
+        // 'low'. Still capped at 8000 — Groq's practical output ceiling —
+        // and 6 weeks/chunk (the max WEEKS_PER_CHUNK) stays under it.
+        max_tokens: Math.min(8000, weeksInChunk * 1000 + 400),
       })
       const raw = res.choices[0]?.message?.content ?? ''
       const parsed = extractJSON(raw)
