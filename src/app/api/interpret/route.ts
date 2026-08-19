@@ -325,13 +325,18 @@ ${patientFacts}
 KB:
 ${kbContext || 'Use expertise.'}
 
-Write 4 clinical notes:
-• Biomarkers: specific tests to track for this patient's exact condition with target ranges
-• Diet protocol: specific dietary intervention based on their actual eating patterns
-• Supplements: 2-3 specific supplements with exact doses, timing, and clinical reason for this patient
-• Red flags: specific warning signs to watch for given their history
+Write 4 clinical notes, each section starting with EXACTLY one of these four header lines (plain text, no markdown bold, no extra words on the header line itself):
+• Biomarkers:
+• Diet protocol:
+• Supplements:
+• Red flags:
 
-Each starts with •. Specific to this patient. No generic statements.` }
+Under "Biomarkers:", list specific tests to track for this patient's exact condition with target ranges.
+Under "Diet protocol:", give specific dietary intervention based on their actual eating patterns.
+Under "Supplements:", give 2-3 specific supplements with exact doses, timing, and clinical reason for this patient.
+Under "Red flags:", list specific warning signs to watch for given their history.
+
+Each bullet under a section starts with •. Specific to this patient. No generic statements. No markdown formatting anywhere (no **, no #).` }
       ],
       temperature: 0.2,
       max_tokens: 1200, // was 400, raised to 800 after four multi-bullet
