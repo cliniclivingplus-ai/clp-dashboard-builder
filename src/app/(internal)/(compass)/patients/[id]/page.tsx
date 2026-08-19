@@ -127,7 +127,7 @@ export default function PatientPage() {
 
   if (loading) {
     return (
-      <div style={{ maxWidth: 820, margin: '0 auto' }}>
+      <div style={{ maxWidth: 1040, margin: '0 auto' }}>
         <div style={{ height: 120, background: C.card, borderRadius: 16, border: `1px solid ${C.line}`, opacity: 0.6 }} />
       </div>
     )
@@ -135,7 +135,7 @@ export default function PatientPage() {
 
   if (!patient) {
     return (
-      <div style={{ maxWidth: 820, margin: '0 auto', textAlign: 'center', paddingTop: 80 }}>
+      <div style={{ maxWidth: 1040, margin: '0 auto', textAlign: 'center', paddingTop: 80 }}>
         <p style={{ color: C.muted }}>This patient could not be found.</p>
         <Link href="/patients" style={{ color: C.green, fontWeight: 600 }}>Back to patients</Link>
       </div>
@@ -145,7 +145,7 @@ export default function PatientPage() {
   const counts = { sessions: sessions.length, roadmaps: roadmaps.length }
 
   return (
-    <div style={{ maxWidth: 820, margin: '0 auto' }}>
+    <div style={{ maxWidth: 1040, margin: '0 auto' }}>
       <Link href="/patients" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: C.faint, textDecoration: 'none', marginBottom: 18, fontWeight: 500 }}>
         <ArrowLeft size={14} /> All patients
       </Link>
