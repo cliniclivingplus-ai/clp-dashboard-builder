@@ -9,8 +9,60 @@ const C = {
 }
 
 type LinkedPatient = { id: string; name: string; age_sex: string | null; complaint: string | null; diet_type: string | null }
-type Linked = { linkId: string; linkedAt: string; patient: LinkedPatient; reportCount: number }
+type PrescriptionItem = { section: 'supplements' | 'therapies' | 'dietary'; name: string; detail: string; doctorNote: string; contraindications: string }
+type Prescription = { approvedAt: string; clinicalImpression: string; doctorNotes: string; items: PrescriptionItem[] }
+type Linked = { linkId: string; linkedAt: string; patient: LinkedPatient; reportCount: number; prescription: Prescription | null }
 type Candidate = { id: string; name: string; age_sex: string | null; complaint: string | null; diet_type: string | null; reportCount: number }
+
+function fmtDate(d: string) {
+  return new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+}
+
+const SECTION_LABEL: Record<PrescriptionItem['section'], string> = { supplements: 'Supplement', therapies: 'Therapy', dietary: 'Dietary' }
+
+function PrescriptionTable({ prescription }: { prescription: Prescription | null }) {
+  if (!prescription) return null
+  return (
+    <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${C.line}` }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 8 }}>
+        <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: C.muted }}>Approved prescription</span>
+        <span style={{ fontSize: 11, color: C.muted }}>Approved {fmtDate(prescription.approvedAt)}</span>
+      </div>
+      {prescription.clinicalImpression && (
+        <p style={{ fontSize: 12.5, color: C.ink, margin: '0 0 10px', lineHeight: 1.5 }}>{prescription.clinicalImpression}</p>
+      )}
+      {prescription.items.length > 0 && (
+        <div style={{ border: `1px solid ${C.line}`, borderRadius: 10, overflow: 'hidden' }}>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+              <thead>
+                <tr style={{ textAlign: 'left', fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: C.muted, borderBottom: `1px solid ${C.line}` }}>
+                  <th style={{ padding: '8px 12px', fontWeight: 600 }}>Type</th>
+                  <th style={{ padding: '8px 12px', fontWeight: 600 }}>Item</th>
+                  <th style={{ padding: '8px 12px', fontWeight: 600 }}>Detail</th>
+                  <th style={{ padding: '8px 12px', fontWeight: 600 }}>Doctor&apos;s note</th>
+                </tr>
+              </thead>
+              <tbody>
+                {prescription.items.map((it, i) => (
+                  <tr key={i} style={{ borderBottom: `1px solid ${C.line}` }}>
+                    <td style={{ padding: '8px 12px', color: C.muted, whiteSpace: 'nowrap' }}>{SECTION_LABEL[it.section]}</td>
+                    <td style={{ padding: '8px 12px', fontWeight: 600, color: C.ink }}>{it.name}</td>
+                    <td style={{ padding: '8px 12px', color: C.ink }}>{it.detail}</td>
+                    <td style={{ padding: '8px 12px', color: C.muted }}>{it.doctorNote || 'None noted'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+      {prescription.doctorNotes && (
+        <p style={{ fontSize: 12, color: C.muted, margin: '10px 0 0', whiteSpace: 'pre-wrap' }}>{prescription.doctorNotes}</p>
+      )}
+    </div>
+  )
+}
 
 // MicrobiomeRX's own patient records live in this same Supabase project now
 // (mrx_ prefixed tables, migrated from its separate database) but have no
@@ -106,6 +158,7 @@ export default function MicrobiomeLinkTab({ patientId }: { patientId: string }) 
           <FileText size={13} />
           {linked.reportCount} MicrobiomeRX report{linked.reportCount === 1 ? '' : 's'} on file
         </div>
+        <PrescriptionTable prescription={linked.prescription} />
         <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
       </div>
     )
