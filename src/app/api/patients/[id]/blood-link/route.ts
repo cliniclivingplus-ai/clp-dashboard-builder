@@ -3,6 +3,19 @@ import { NextRequest, NextResponse } from 'next/server'
 export const dynamic = 'force-dynamic'
 import { supabaseAdmin } from '@/lib/supabase'
 import { supabaseBlood } from '@/lib/supabaseBlood'
+import { buildMarkerTrends, buildTrendSnapshot, type ExtractedMarker } from '@/lib/bloodTrends'
+
+async function fetchSnapshot(bloodPatientId: string) {
+  const [{ data: patient }, { data: reports }] = await Promise.all([
+    supabaseBlood.from('patients').select('id, name, age_sex, notes, progress_summary').eq('id', bloodPatientId).maybeSingle(),
+    supabaseBlood.from('reports').select('id, created_at, markers').eq('patient_id', bloodPatientId).order('created_at', { ascending: false }),
+  ])
+  const trends = buildMarkerTrends(
+    (reports ?? []).map((r) => ({ created_at: r.created_at, markers: r.markers as ExtractedMarker[] | null }))
+  )
+  const snapshot = buildTrendSnapshot(trends)
+  return { patient, reportCount: reports?.length ?? 0, snapshot, aiTakeaway: patient?.progress_summary ?? null }
+}
 
 // A CLP Compass patient links to at most one Blood Panel Analyzer patient
 // record — that app already handles multiple reports per patient over time
@@ -24,17 +37,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   if (!link) return NextResponse.json({ linked: null })
 
-  const { data: patient } = await supabaseBlood
-    .from('patients')
-    .select('id, name, age_sex, notes')
-    .eq('id', link.blood_patient_id)
-    .maybeSingle()
-  const { count } = await supabaseBlood
-    .from('reports')
-    .select('id', { count: 'exact', head: true })
-    .eq('patient_id', link.blood_patient_id)
-
-  return NextResponse.json({ linked: { linkId: link.id, linkedAt: link.linked_at, patient, reportCount: count ?? 0 } })
+  const { patient, reportCount, snapshot, aiTakeaway } = await fetchSnapshot(link.blood_patient_id)
+  return NextResponse.json({ linked: { linkId: link.id, linkedAt: link.linked_at, patient, reportCount, snapshot, aiTakeaway } })
 }
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -53,17 +57,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     .single()
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  const { data: patient } = await supabaseBlood
-    .from('patients')
-    .select('id, name, age_sex, notes')
-    .eq('id', bloodPatientId)
-    .maybeSingle()
-  const { count } = await supabaseBlood
-    .from('reports')
-    .select('id', { count: 'exact', head: true })
-    .eq('patient_id', bloodPatientId)
-
-  return NextResponse.json({ linked: { linkId: data.id, linkedAt: data.linked_at, patient, reportCount: count ?? 0 } })
+  const { patient, reportCount, snapshot, aiTakeaway } = await fetchSnapshot(bloodPatientId)
+  return NextResponse.json({ linked: { linkId: data.id, linkedAt: data.linked_at, patient, reportCount, snapshot, aiTakeaway } })
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {

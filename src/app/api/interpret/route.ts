@@ -2,8 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 
 export const dynamic = 'force-dynamic'
 import { supabaseAdmin } from '@/lib/supabase'
+import { supabaseBlood } from '@/lib/supabaseBlood'
 import Groq from 'groq-sdk'
 import { embedText } from '@/lib/embeddings'
+import { buildMarkerTrends, buildTrendSnapshot, buildBloodMarkersPromptBlock, type ExtractedMarker } from '@/lib/bloodTrends'
 
 // A 12-month plan now runs up to 8 sequential weekly-schedule chunk calls
 // (on top of the 4 earlier steps) since each week's response got much bigger
@@ -42,6 +44,29 @@ export async function POST(req: NextRequest) {
     const reportsBlock = (reports ?? []).length
       ? (reports ?? []).map((r) => `${r.report_type}:\n${r.patient_summary}`).join('\n\n')
       : ''
+
+    // ── Blood Panel Analyzer data (if this patient is linked) ──
+    // Same real-value, no-fabrication principle as reportsBlock — pulls the
+    // patient's actual extracted marker values/reference ranges/abnormal
+    // flags from the linked blood.reports rows, never inferred.
+    let bloodMarkersBlock = ''
+    try {
+      const { data: bloodLink } = await supabaseAdmin
+        .from('blood_patient_links')
+        .select('blood_patient_id')
+        .eq('clp_patient_id', patient_id)
+        .maybeSingle()
+      if (bloodLink) {
+        const { data: bloodReports } = await supabaseBlood
+          .from('reports')
+          .select('created_at, markers')
+          .eq('patient_id', bloodLink.blood_patient_id)
+        const trends = buildMarkerTrends(
+          (bloodReports ?? []).map((r) => ({ created_at: r.created_at, markers: r.markers as ExtractedMarker[] | null }))
+        )
+        bloodMarkersBlock = buildBloodMarkersPromptBlock(buildTrendSnapshot(trends))
+      }
+    } catch (e) { console.log('Blood marker fetch error:', e) }
 
     // ── KB Search ────────────────────────────────────────────
     let kbContext = ''
@@ -168,6 +193,7 @@ ${geminiSnippet}
 Q&A:
 ${fullQA || 'None'}
 ${reportsBlock ? `\nLab/diagnostic reports on file:\n${reportsBlock}\n` : ''}
+${bloodMarkersBlock ? `\nBlood panel test results on file (real extracted values):\n${bloodMarkersBlock}\n` : ''}
 Extract every specific fact mentioned:
 - Exact symptoms (with duration, frequency, severity)
 - Exact diet details (what they eat, when, how much)
@@ -177,6 +203,7 @@ Extract every specific fact mentioned:
 - Specific habits (good and bad)
 - What has worked or failed before
 ${reportsBlock ? '- Exact lab/report findings (values, whether in/out of normal range)' : ''}
+${bloodMarkersBlock ? '- Exact blood panel marker values, units, reference ranges, and which are out of range' : ''}
 
 Return as a bullet list. Every point must be specific and sourced from the data above. NO generalisations.` }
       ],

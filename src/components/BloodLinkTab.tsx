@@ -4,12 +4,80 @@ import { Droplets, Search, Link2, Unlink, Loader2, FileText } from 'lucide-react
 
 const C = {
   danger: '#B3261E', dangerSoft: '#FBEBE6', ink: '#1A2417', muted: '#6b7280',
-  faint: '#8A9284', line: '#ECEBE3', card: '#FFFFFF',
+  faint: '#8A9284', line: '#ECEBE3', card: '#FFFFFF', success: '#2E7D46', successSoft: '#E8F3EA',
 }
 
 type LinkedPatient = { id: string; name: string; age_sex: string | null; notes: string | null }
-type Linked = { linkId: string; linkedAt: string; patient: LinkedPatient; reportCount: number }
+type SnapshotRow = {
+  key: string; displayName: string; unit: string; refRange: string
+  latestValue: number; latestDate: string; abnormal: boolean
+  direction: 'up' | 'down' | 'same' | null; delta: number | null
+}
+type Linked = {
+  linkId: string; linkedAt: string; patient: LinkedPatient; reportCount: number
+  snapshot: SnapshotRow[]; aiTakeaway: string | null
+}
 type Candidate = { id: string; name: string; age_sex: string | null; notes: string | null; reportCount: number }
+
+function fmtDate(d: string) {
+  return new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+}
+
+function BloodSnapshotTable({ linked }: { linked: Linked }) {
+  if (linked.reportCount === 0) return null
+  return (
+    <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${C.line}` }}>
+      {linked.snapshot.length > 0 && (
+        <div style={{ border: `1px solid ${C.line}`, borderRadius: 10, overflow: 'hidden', marginBottom: linked.aiTakeaway ? 10 : 0 }}>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+              <thead>
+                <tr style={{ textAlign: 'left', fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: C.muted, borderBottom: `1px solid ${C.line}` }}>
+                  <th style={{ padding: '8px 12px', fontWeight: 600 }}>Marker</th>
+                  <th style={{ padding: '8px 12px', fontWeight: 600 }}>Latest</th>
+                  <th style={{ padding: '8px 12px', fontWeight: 600 }}>Change</th>
+                  <th style={{ padding: '8px 12px', fontWeight: 600 }}>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {linked.snapshot.map((s) => (
+                  <tr key={s.key} style={{ borderBottom: `1px solid ${C.line}` }}>
+                    <td style={{ padding: '8px 12px', fontWeight: 600, color: C.ink, whiteSpace: 'nowrap' }}>{s.displayName}</td>
+                    <td style={{ padding: '8px 12px', color: C.ink, whiteSpace: 'nowrap' }}>
+                      {s.latestValue} {s.unit} <span style={{ color: C.muted }}>· {fmtDate(s.latestDate)}</span>
+                    </td>
+                    <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>
+                      {s.delta === null ? (
+                        <span style={{ color: C.muted }}>First reading</span>
+                      ) : s.direction === 'same' ? (
+                        <span style={{ color: C.muted }}>No change</span>
+                      ) : (
+                        <span style={{ color: s.direction === 'up' ? '#B45309' : '#0369A1' }}>
+                          {s.direction === 'up' ? '↑' : '↓'} {s.delta}
+                        </span>
+                      )}
+                    </td>
+                    <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>
+                      <span style={{
+                        fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 999,
+                        background: s.abnormal ? C.dangerSoft : C.successSoft, color: s.abnormal ? C.danger : C.success,
+                      }}>
+                        {s.abnormal ? 'Out of range' : 'In range'}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+      {linked.aiTakeaway && (
+        <p style={{ fontSize: 12.5, color: C.muted, lineHeight: 1.5, margin: 0, whiteSpace: 'pre-wrap' }}>{linked.aiTakeaway}</p>
+      )}
+    </div>
+  )
+}
 
 // Blood Panel Analyzer's own patient records live in this same Supabase
 // project (a dedicated `blood` schema, same pattern as MicrobiomeRX's
@@ -106,6 +174,7 @@ export default function BloodLinkTab({ patientId }: { patientId: string }) {
           <FileText size={13} />
           {linked.reportCount} blood report{linked.reportCount === 1 ? '' : 's'} on file
         </div>
+        <BloodSnapshotTable linked={linked} />
         <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
       </div>
     )
