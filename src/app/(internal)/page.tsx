@@ -31,7 +31,13 @@ const TOOLS: {
     tagline: 'Gut microbiome report analysis',
     description: 'Upload a BugSpeaks report, get a full clinical breakdown and an AIC supplement protocol. Opens as a separate app.',
     icon: Dna,
-    href: 'https://microbiomerx.vercel.app',
+    // Not microbiomerx.vercel.app — that short domain is an orphaned,
+    // pre-migration deployment outside this Vercel team, still pointed at
+    // the old standalone database. microbiomerx-rho.vercel.app is the
+    // actual maintained deployment (the team-branded
+    // microbiomerx-cliniclivingplus.vercel.app also exists but has
+    // Vercel's SSO wall on it, so it's not usable as a public link).
+    href: 'https://microbiomerx-rho.vercel.app',
     external: true,
     status: 'live' as const,
   },
