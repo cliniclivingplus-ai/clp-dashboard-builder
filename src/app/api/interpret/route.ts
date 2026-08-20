@@ -482,6 +482,35 @@ Exactly ${weeksInChunk} items, week_number ${startWeek} through ${endWeek}. Each
     // updated content next time they open it. guide_overrides (template,
     // theme, care team, hidden sections, etc.) is a coach's own separate
     // configuration and is deliberately left untouched by a refresh.
+    //
+    // Before that overwrite happens, archive whatever's currently live into
+    // roadmap_versions — otherwise the previous session's plan is gone the
+    // moment this one lands, with no way to see what the patient was
+    // actually looking at last week. Best-effort: a failed snapshot should
+    // never block the coach from getting their new roadmap.
+    if (refresh_roadmap_id) {
+      try {
+        const { data: previous } = await supabaseAdmin
+          .from('roadmaps')
+          .select('session_id, overview, lifestyle_guidelines, nutritionist_guidelines, weekly_schedule, kb_sources, duration_months, guide_overrides')
+          .eq('id', refresh_roadmap_id)
+          .single()
+        if (previous) {
+          await supabaseAdmin.from('roadmap_versions').insert({
+            roadmap_id: refresh_roadmap_id,
+            session_id: previous.session_id,
+            overview: previous.overview,
+            lifestyle_guidelines: previous.lifestyle_guidelines,
+            nutritionist_guidelines: previous.nutritionist_guidelines,
+            weekly_schedule: previous.weekly_schedule,
+            kb_sources: previous.kb_sources,
+            duration_months: previous.duration_months,
+            guide_overrides: previous.guide_overrides,
+          })
+        }
+      } catch (e) { console.log('Roadmap version archive failed (non-fatal):', e) }
+    }
+
     const roadmapWrite = { overview, lifestyle_guidelines, nutritionist_guidelines, weekly_schedule: weeklySchedule, kb_sources: kbSources, duration_months }
     const { data: roadmap, error: roadmapError } = refresh_roadmap_id
       ? await supabaseAdmin.from('roadmaps').update(roadmapWrite).eq('id', refresh_roadmap_id).select().single()

@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { renderMarkdownBold } from '@/lib/renderMarkdownBold'
-import { ArrowLeft, Plus, Pencil, FileText, StickyNote, LayoutDashboard, Calendar, ChevronRight, Microscope, Trash2, X, Link2, Check, Dna, FileCheck2, Droplets } from 'lucide-react'
+import { ArrowLeft, Plus, Pencil, FileText, StickyNote, LayoutDashboard, Calendar, ChevronRight, Microscope, Trash2, X, Link2, Check, Dna, FileCheck2, Droplets, History } from 'lucide-react'
 import ReportsTab from '@/components/ReportsTab'
 import MicrobiomeLinkTab from '@/components/MicrobiomeLinkTab'
 import BloodLinkTab from '@/components/BloodLinkTab'
@@ -246,7 +246,7 @@ export default function PatientPage() {
         {tab === 'sessions' && <SessionsTab sessions={sessions} roadmaps={roadmaps} patientId={patientId} router={router} />}
         {tab === 'reports' && <ReportsTab patientId={patientId} />}
         {tab === 'notes' && <NotesTab sessions={sessions} />}
-        {tab === 'dashboard' && <DashboardTab roadmaps={roadmaps} />}
+        {tab === 'dashboard' && <DashboardTab roadmaps={roadmaps} patientId={patientId} />}
         {tab === 'microbiome' && <MicrobiomeLinkTab patientId={patientId} />}
         {tab === 'blood' && <BloodLinkTab patientId={patientId} />}
         {tab === 'checklist' && <ChecklistTab patientId={patientId} />}
@@ -442,7 +442,7 @@ function NotesTab({ sessions }: { sessions: Session[] }) {
   )
 }
 
-function DashboardTab({ roadmaps }: { roadmaps: Roadmap[] }) {
+function DashboardTab({ roadmaps, patientId }: { roadmaps: Roadmap[]; patientId: string }) {
   const [copiedId, setCopiedId] = useState<string | null>(null)
   // The dashboard link is the thing to actually send a patient — a public,
   // no-login page (see src/app/dashboard/[roadmapId]/page.tsx) that never
@@ -480,6 +480,10 @@ function DashboardTab({ roadmaps }: { roadmaps: Roadmap[] }) {
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, border: `1px solid ${C.line}`, background: '#fff', color: C.ink, fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>
                 {copiedId === r.id ? <><Check size={13} color={C.green} /> Copied</> : <><Link2 size={13} /> Copy link</>}
               </button>
+              <Link href={`/patients/${patientId}/roadmap-history/${r.id}`}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, border: `1px solid ${C.line}`, background: '#fff', color: C.ink, fontSize: 12.5, fontWeight: 700, textDecoration: 'none' }}>
+                <History size={13} /> History
+              </Link>
               <Link href={`/dashboard/${r.id}`} target="_blank" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, background: C.green, color: '#fff', fontSize: 12.5, fontWeight: 700, textDecoration: 'none' }}>
                 <LayoutDashboard size={13} /> Open dashboard
               </Link>
