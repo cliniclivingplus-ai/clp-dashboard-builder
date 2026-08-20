@@ -1,8 +1,7 @@
 import { notFound } from 'next/navigation'
 import { supabaseAdmin } from '@/lib/supabase'
-import { supabaseMrx } from '@/lib/supabaseMrx'
 import { buildGuideData } from '@/lib/pdf/buildGuideData'
-import { parsePrescriptionRow } from '@/lib/mrxPrescription'
+import { resolveConfirmedSupplements } from '@/lib/pdf/resolveConfirmedSupplements'
 import DashboardClient from './DashboardClient'
 import AlmanacTemplate from './AlmanacTemplate'
 import PulseTemplate from './PulseTemplate'
@@ -32,64 +31,8 @@ export default async function PatientDashboardPage({ params }: { params: Promise
 
   if (error || !roadmap) notFound()
 
-  // Only a coach-confirmed supplement list is ever shown to a patient — see
-  // the review/confirm step in ReportsTab.tsx. Most recent one wins if a
-  // patient has multiple confirmed reports with a supplement list.
-  const { data: supplementReport } = await supabaseAdmin
-    .from('patient_reports')
-    .select('supplements')
-    .eq('patient_id', roadmap.patient_id)
-    .eq('supplements_confirmed', true)
-    .not('supplements', 'is', null)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
-
-  // A linked MicrobiomeRX patient's doctor-approved prescription (approved
-  // via that app's own review/"Approve RX" step — same confirmed-only trust
-  // model as the patient_reports source above) also belongs here, appended
-  // after the patient_reports list rather than replacing it, since a
-  // patient can have both a manually confirmed report and a linked gut-panel
-  // prescription.
-  const mrxSupplements: { name: string; dose: string; timing: string; duration: string; notes: string }[] = []
-  try {
-    const { data: mrxLink } = await supabaseAdmin
-      .from('mrx_patient_links')
-      .select('mrx_patient_id')
-      .eq('clp_patient_id', roadmap.patient_id)
-      .maybeSingle()
-    if (mrxLink) {
-      const { data: mrxPatient } = await supabaseMrx.from('patients').select('name').eq('id', mrxLink.mrx_patient_id).maybeSingle()
-      if (mrxPatient) {
-        const { data: mrxReports } = await supabaseMrx.from('reports').select('id').ilike('patient_name', mrxPatient.name)
-        const reportIds = (mrxReports ?? []).map((r) => r.id)
-        if (reportIds.length > 0) {
-          const { data: rxRow } = await supabaseMrx
-            .from('prescriptions')
-            .select('approved_at, rx_data')
-            .in('report_id', reportIds)
-            .not('approved_at', 'is', null)
-            .order('approved_at', { ascending: false })
-            .limit(1)
-            .maybeSingle()
-          const prescription = parsePrescriptionRow(rxRow)
-          if (prescription) {
-            for (const item of prescription.items) {
-              // item.detail is free text from MicrobiomeRX's own review page,
-              // usually "dose · timing · duration" but not guaranteed —
-              // split what's there into the right columns, put everything
-              // else in dose rather than dropping it.
-              const parts = item.detail.split('·').map((p) => p.trim()).filter(Boolean)
-              const [dose, timing, duration] = parts.length >= 3 ? parts : [item.detail, '', '']
-              mrxSupplements.push({ name: item.name, dose, timing, duration, notes: item.doctorNote })
-            }
-          }
-        }
-      }
-    }
-  } catch { /* linking is optional — never block the dashboard on it */ }
-
-  const guideData = buildGuideData(roadmap, imageBank ?? [], recipes ?? [], [...(supplementReport?.supplements ?? []), ...mrxSupplements])
+  const confirmedSupplements = await resolveConfirmedSupplements(roadmap.patient_id)
+  const guideData = buildGuideData(roadmap, imageBank ?? [], recipes ?? [], confirmedSupplements)
 
   if (guideData.template === 'almanac') {
     return <AlmanacTemplate roadmapId={roadmapId} data={guideData} initialCheckins={checkins ?? []} />

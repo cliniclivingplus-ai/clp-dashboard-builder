@@ -249,11 +249,16 @@ export default function VitalsTemplate({ roadmapId, data, initialCheckins }: { r
   const [openService, setOpenService] = useState<number | null>(null)
   const [openFaq, setOpenFaq] = useState<number | null>(null)
 
-  const { superfoodImage } = useMemo(() => {
+  const { superfoodImage, superfoodPick } = useMemo(() => {
     const used = new Set<string>()
-    const superfood = matchGuideImageDistinct('superfood nutrition weekly pick seasonal', data.imageBank, used)
-    return { superfoodImage: superfood }
-  }, [data.imageBank])
+    const pick = weekMealMatches.snack[0] || weekMealMatches.breakfast[0] || weekMealMatches.dinner[0] || weekMealMatches.lunch[0] || weekMealMatches.dessert[0] || null
+    const superfood = pick
+      ? (pick.recipe.image_url
+        ? { id: pick.recipe.id, image_url: pick.recipe.image_url, label: pick.recipe.name, tags: pick.recipe.tags }
+        : matchGuideImageDistinct(`${pick.recipe.name} ${pick.recipe.tags.join(' ')}`, data.imageBank, used))
+      : null
+    return { superfoodImage: superfood, superfoodPick: pick }
+  }, [data.imageBank, weekMealMatches])
 
   function downloadDashboard() {
     const root = document.getElementById('vitals-export-root')
@@ -643,7 +648,14 @@ export default function VitalsTemplate({ roadmapId, data, initialCheckins }: { r
           <Eyebrow>Fresh each week</Eyebrow>
           <SecTitle icon={<Sparkles size={20} />}>Superfood of the week</SecTitle>
           {superfoodImage && <img src={superfoodImage.image_url} alt={superfoodImage.label} style={{ width: '100%', height: 160, objectFit: 'cover', borderRadius: 14, margin: '14px 0' }} />}
-          <p style={{ fontSize: 12.5, color: V.muted, margin: 0 }}>A seasonal food picked by {coachFirst} to support this week&apos;s plan.</p>
+          {superfoodPick ? (
+            <>
+              <div style={{ fontSize: 13.5, fontWeight: 700, color: V.ink, marginBottom: 4 }}>{superfoodPick.recipe.name}</div>
+              <p style={{ fontSize: 12.5, color: V.muted, margin: 0 }}>{superfoodPick.why}</p>
+            </>
+          ) : (
+            <p style={{ fontSize: 12.5, color: V.muted, margin: 0 }}>{coachFirst} hasn&apos;t matched a recipe to this week&apos;s plan yet.</p>
+          )}
         </Card>
 
         {/* Supplements — a time-of-day timeline instead of a table */}

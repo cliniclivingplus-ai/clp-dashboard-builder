@@ -397,12 +397,21 @@ export default function WeekTemplate({ roadmapId, data, initialCheckins }: { roa
   const [founderOpen, setFounderOpen] = useState(false)
   const [coachOpen, setCoachOpen] = useState(false)
 
-  const { superfoodImage, whyImage } = useMemo(() => {
+  // Superfood pick is a real recipe from this patient's own KB-grounded
+  // match (same selection every other recipe section uses), not a generic
+  // stock-photo keyword search — see DashboardClient.tsx for the full
+  // reasoning, mirrored here since this template computes its own matches.
+  const { superfoodImage, superfoodPick, whyImage } = useMemo(() => {
     const used = new Set<string>()
-    const superfood = matchGuideImageDistinct('superfood nutrition weekly pick seasonal', data.imageBank, used)
+    const pick = weekMealMatches.snack[0] || weekMealMatches.breakfast[0] || weekMealMatches.dinner[0] || weekMealMatches.lunch[0] || weekMealMatches.dessert[0] || null
+    const superfood = pick
+      ? (pick.recipe.image_url
+        ? { id: pick.recipe.id, image_url: pick.recipe.image_url, label: pick.recipe.name, tags: pick.recipe.tags }
+        : matchGuideImageDistinct(`${pick.recipe.name} ${pick.recipe.tags.join(' ')}`, data.imageBank, used))
+      : null
     const why = matchGuideImageDistinct('motivation why reflection goal mindset determination doodle illustration', data.imageBank, used)
-    return { superfoodImage: superfood, whyImage: why }
-  }, [data.imageBank])
+    return { superfoodImage: superfood, superfoodPick: pick, whyImage: why }
+  }, [data.imageBank, weekMealMatches])
 
   function downloadDashboard() {
     const root = document.getElementById('week-export-root')
@@ -929,8 +938,18 @@ clpRenderMetrics();
           <Eyebrow>Fresh each week</Eyebrow>
           <SecTitle icon={<Sparkles size={26} />}>Superfood Of The Week</SecTitle>
           {superfoodImage && <img src={superfoodImage.image_url} alt={superfoodImage.label} style={{ width: '100%', height: 200, objectFit: 'cover', borderRadius: 12, margin: '20px 0' }} />}
-          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.7rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: PALETTE.berry, marginTop: superfoodImage ? 0 : 20, marginBottom: 4 }}>Why it&apos;s here</div>
-          <p style={{ fontSize: '0.95rem', lineHeight: 1.6, marginBottom: 0 }}>A seasonal food picked by {coachFirst} to support this week&apos;s plan.</p>
+          {superfoodPick ? (
+            <>
+              <div style={{ fontSize: '1.1rem', fontWeight: 700, marginTop: superfoodImage ? 0 : 20, marginBottom: 6 }}>{superfoodPick.recipe.name}</div>
+              <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.7rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: PALETTE.berry, marginBottom: 4 }}>Why it&apos;s here</div>
+              <p style={{ fontSize: '0.95rem', lineHeight: 1.6, marginBottom: 0 }}>{superfoodPick.why}</p>
+            </>
+          ) : (
+            <>
+              <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.7rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: PALETTE.berry, marginTop: superfoodImage ? 0 : 20, marginBottom: 4 }}>Why it&apos;s here</div>
+              <p style={{ fontSize: '0.95rem', lineHeight: 1.6, marginBottom: 0 }}>{coachFirst} hasn&apos;t matched a recipe to this week&apos;s plan yet.</p>
+            </>
+          )}
         </div>
       </section>
 

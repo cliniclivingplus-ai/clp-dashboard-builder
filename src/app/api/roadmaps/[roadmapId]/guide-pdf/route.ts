@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { buildGuideData } from '@/lib/pdf/buildGuideData'
+import { resolveConfirmedSupplements } from '@/lib/pdf/resolveConfirmedSupplements'
 import { renderGuidePdf } from '@/lib/pdf/renderGuideDocument'
 
 export const runtime = 'nodejs'
@@ -21,7 +22,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ road
   if (error) return new Response(error.message, { status: 500 })
   if (!roadmap) return new Response('Not found', { status: 404 })
 
-  const guideData = buildGuideData(roadmap, imageBank ?? [], recipeBank ?? [])
+  const confirmedSupplements = await resolveConfirmedSupplements(roadmap.patient_id)
+  const guideData = buildGuideData(roadmap, imageBank ?? [], recipeBank ?? [], confirmedSupplements)
   const pdfBuffer = await renderGuidePdf(guideData)
 
   const fileName = `${roadmap.patients?.full_name?.replace(/\s+/g, '-') ?? 'client'}-wellness-guide.pdf`

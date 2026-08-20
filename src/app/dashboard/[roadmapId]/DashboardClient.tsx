@@ -1219,7 +1219,7 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
   // PDF never show different pictures or different recipes for the same
   // patient. One shared `used` set, matched in the same top-to-bottom order
   // as the PDF sections, so the same photo doesn't repeat across sections.
-  const { heroImage, mealMatches, weekMealMatches, mealImages, superfoodImage, monthImages } = useMemo(() => {
+  const { heroImage, mealMatches, weekMealMatches, mealImages, superfoodImage, superfoodPick, monthImages } = useMemo(() => {
     const used = new Set<string>()
     const hero = matchGuideImageDistinct(data.roadmap.lifestyle_guidelines, data.imageBank, used)
     const parsed = parseNutritionistGuidelines(data.roadmap.nutritionist_guidelines)
@@ -1241,7 +1241,22 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
         images.set(m.recipe.id, img?.image_url ?? null)
       }
     }
-    const superfood = matchGuideImageDistinct('superfood nutrition weekly pick seasonal', data.imageBank, used)
+    // Was a generic 'superfood nutrition weekly pick seasonal' stock-photo
+    // search with static filler text, completely disconnected from this
+    // patient's actual KB-grounded plan. Now it's a real recipe from the
+    // same tag/keyword match against this patient's concern + KB-informed
+    // diet protocol every other recipe section already uses — snack-first
+    // since a single standout ingredient/snack reads more like a "superfood
+    // pick" than a full dinner, falling back through the other meal types
+    // if there's no snack match. Its own `why` (already grounded in a real
+    // matched term, same discipline as every other recipe pick) becomes the
+    // section's real "why it's here" text instead of the old filler line.
+    const superfoodPick = selection.snack[0] || selection.breakfast[0] || selection.dinner[0] || selection.lunch[0] || selection.dessert[0] || null
+    const superfoodImg = superfoodPick
+      ? (superfoodPick.recipe.image_url
+        ? { id: superfoodPick.recipe.id, image_url: superfoodPick.recipe.image_url, label: superfoodPick.recipe.name, tags: superfoodPick.recipe.tags }
+        : matchGuideImageDistinct(`${superfoodPick.recipe.name} ${superfoodPick.recipe.tags.join(' ')}`, data.imageBank, used))
+      : null
     // One optional photo per month block — same "no real match beats a
     // fabricated one" rule, so a month with nothing tag-matched just shows a
     // plain icon tile instead of a forced/wrong picture.
@@ -1252,7 +1267,7 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
       months.set(String(m.monthNumber), img?.image_url ?? null)
     }
     const capped = { breakfast: selection.breakfast.slice(0, 2), lunch: selection.lunch.slice(0, 2), dinner: selection.dinner.slice(0, 2), snack: selection.snack.slice(0, 2), dessert: selection.dessert.slice(0, 2) }
-    return { heroImage: hero, mealMatches: capped, weekMealMatches: selection, mealImages: images, superfoodImage: superfood, monthImages: months }
+    return { heroImage: hero, mealMatches: capped, weekMealMatches: selection, mealImages: images, superfoodImage: superfoodImg, superfoodPick, monthImages: months }
   }, [data])
 
   // Shared with every template (src/lib/pdf/weekRecipes.ts) so Classic and
@@ -2250,8 +2265,18 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
             {editable && <SectionToggle hidden={isHidden('superfood')} onToggle={() => toggleSection('superfood')} />}
             <div style={sectionTitleStyle}><Sparkles size={18} color={C.accent} /> Superfood of the week</div>
             {superfoodImage && <img src={superfoodImage.image_url} alt={superfoodImage.label} style={{ width: '100%', height: 150, objectFit: 'cover', borderRadius: 10, marginBottom: 12 }} />}
-            <div style={{ fontSize: 11, fontWeight: 700, color: C.accent, textTransform: 'uppercase', letterSpacing: '0.03em', marginBottom: 4 }}>Why it&apos;s here</div>
-            <p style={{ ...bulletStyle, marginBottom: 0 }}>A seasonal food picked by {coachFirst} to support this week&apos;s plan.</p>
+            {superfoodPick ? (
+              <>
+                <div style={{ fontSize: 14, fontWeight: 700, color: C.ink, marginBottom: 6 }}>{superfoodPick.recipe.name}</div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: C.accent, textTransform: 'uppercase', letterSpacing: '0.03em', marginBottom: 4 }}>Why it&apos;s here</div>
+                <p style={{ ...bulletStyle, marginBottom: 0 }}>{superfoodPick.why}</p>
+              </>
+            ) : (
+              <>
+                <div style={{ fontSize: 11, fontWeight: 700, color: C.accent, textTransform: 'uppercase', letterSpacing: '0.03em', marginBottom: 4 }}>Why it&apos;s here</div>
+                <p style={{ ...bulletStyle, marginBottom: 0 }}>{coachFirst} hasn&apos;t matched a recipe to this week&apos;s plan yet.</p>
+              </>
+            )}
           </div>
 
           {/* Supplements — only the structured table from a coach-confirmed

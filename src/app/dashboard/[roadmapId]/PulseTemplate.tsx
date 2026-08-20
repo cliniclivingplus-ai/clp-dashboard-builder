@@ -337,7 +337,14 @@ export default function PulseTemplate({ roadmapId, data, initialCheckins }: { ro
   const [founderOpen, setFounderOpen] = useState(false)
   const [coachOpen, setCoachOpen] = useState(false)
 
-  const superfoodImage = useMemo(() => matchGuideImageDistinct('superfood nutrition weekly pick seasonal', data.imageBank, new Set()), [data.imageBank])
+  const superfoodPick = useMemo(() =>
+    weekMealMatches.snack[0] || weekMealMatches.breakfast[0] || weekMealMatches.dinner[0] || weekMealMatches.lunch[0] || weekMealMatches.dessert[0] || null,
+    [weekMealMatches])
+  const superfoodImage = useMemo(() => {
+    if (!superfoodPick) return null
+    if (superfoodPick.recipe.image_url) return { id: superfoodPick.recipe.id, image_url: superfoodPick.recipe.image_url, label: superfoodPick.recipe.name, tags: superfoodPick.recipe.tags }
+    return matchGuideImageDistinct(`${superfoodPick.recipe.name} ${superfoodPick.recipe.tags.join(' ')}`, data.imageBank, new Set())
+  }, [data.imageBank, superfoodPick])
 
   // Downloads exactly what's rendered — every collapsible block in this
   // template is always mounted (just `display:none` when closed, never
@@ -773,8 +780,18 @@ export default function PulseTemplate({ roadmapId, data, initialCheckins }: { ro
           <Eyebrow>Fresh each week</Eyebrow>
           <SecTitle icon={<Sparkles size={20} />}>Superfood of the week</SecTitle>
           {superfoodImage && <img src={superfoodImage.image_url} alt={superfoodImage.label} style={{ width: '100%', height: 180, objectFit: 'cover', borderRadius: 14, margin: '16px 0' }} />}
-          <div style={{ fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: PULSE.accent, marginTop: superfoodImage ? 0 : 16, marginBottom: 4 }}>Why it&apos;s here</div>
-          <p style={{ fontSize: '0.9rem', lineHeight: 1.6, color: PULSE.inkSoft, marginBottom: 0 }}>A seasonal food picked by {coachFirst} to support this week&apos;s plan.</p>
+          {superfoodPick ? (
+            <>
+              <div style={{ fontSize: '1rem', fontWeight: 700, color: PULSE.ink, marginTop: superfoodImage ? 0 : 16, marginBottom: 6 }}>{superfoodPick.recipe.name}</div>
+              <div style={{ fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: PULSE.accent, marginBottom: 4 }}>Why it&apos;s here</div>
+              <p style={{ fontSize: '0.9rem', lineHeight: 1.6, color: PULSE.inkSoft, marginBottom: 0 }}>{superfoodPick.why}</p>
+            </>
+          ) : (
+            <>
+              <div style={{ fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: PULSE.accent, marginTop: superfoodImage ? 0 : 16, marginBottom: 4 }}>Why it&apos;s here</div>
+              <p style={{ fontSize: '0.9rem', lineHeight: 1.6, color: PULSE.inkSoft, marginBottom: 0 }}>{coachFirst} hasn&apos;t matched a recipe to this week&apos;s plan yet.</p>
+            </>
+          )}
         </Card>
 
         {/* Shopping list */}
