@@ -1167,7 +1167,13 @@ export default function AlmanacTemplate({ roadmapId, data, initialCheckins }: { 
           <div style={{ color: PALETTE.cream, opacity: 0.4, fontSize: '0.75rem', marginTop: 40, fontFamily: "'IBM Plex Mono', monospace" }}>Clinic Living Plus Pvt Ltd™</div>
         </div>
       </section>
-      <CanvasBlocksSection blocks={data.canvasBlocks} recipesById={Object.fromEntries(data.recipeBank.map((r) => [r.id, r]))} imagesById={Object.fromEntries(data.imageBank.map((im) => [im.id, im]))} />
+      {data.canvasBlocks.length > 0 && (
+        <section style={{ background: PALETTE.paper1, padding: '2rem 1.5rem' }}>
+          <div style={{ maxWidth: 720, margin: '0 auto' }}>
+            <CanvasBlocksSection blocks={data.canvasBlocks} recipesById={Object.fromEntries(data.recipeBank.map((r) => [r.id, r]))} imagesById={Object.fromEntries(data.imageBank.map((im) => [im.id, im]))} />
+          </div>
+        </section>
+      )}
     </div>
   )
 }
