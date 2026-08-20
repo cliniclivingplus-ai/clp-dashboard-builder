@@ -2022,24 +2022,94 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
             )}
             {editable && months.length > 0 && (() => {
               const currentWeek = editingWeek ?? months[0]?.weeks[0]?.week_number ?? null
+              const w = months.flatMap((m) => m.weeks).find((week) => week.week_number === currentWeek)
               return (
               <div style={{ ...cardStyle, background: C.bg, marginBottom: 16 }}>
-                <div style={sectionTitleStyle}>Recipes for the week</div>
+                <div style={sectionTitleStyle}>Edit this week&apos;s plan</div>
                 <p style={{ ...bulletStyle, color: C.muted, marginBottom: 14 }}>
-                  Pick which week you&apos;re curating, then check or uncheck recipes to set the exact bunch (4-5 recommended) shown to the patient for that week&apos;s slot. Each slot pre-checks the recipes auto-detected by tag/keyword match against this patient&apos;s concern and diet notes. Different weeks can have different recipes.
+                  Pick a week, then edit its goals and pick its recipes right here — everything for that week in one place. Different weeks can have different goals and recipes.
                 </p>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
-                  {months.flatMap((m) => m.weeks).map((w: WeeklyPlan) => (
-                    <button key={w.week_number} onClick={() => setEditingWeek(w.week_number)}
+                  {months.flatMap((m) => m.weeks).map((wk: WeeklyPlan) => (
+                    <button key={wk.week_number} onClick={() => setEditingWeek(wk.week_number)}
                       style={{
                         padding: '6px 12px', borderRadius: 20, cursor: 'pointer', fontSize: 12, fontWeight: 700,
-                        border: currentWeek === w.week_number ? `2px solid ${C.accent}` : `1px solid ${C.rule}`,
-                        background: currentWeek === w.week_number ? C.accentSoft : C.paper, color: C.ink,
+                        border: currentWeek === wk.week_number ? `2px solid ${C.accent}` : `1px solid ${C.rule}`,
+                        background: currentWeek === wk.week_number ? C.accentSoft : C.paper, color: C.ink,
                       }}>
-                      Week {w.week_number}
+                      Week {wk.week_number}
                     </button>
                   ))}
                 </div>
+
+                {/* This week's goal template — focus/actions/milestone, same
+                    fields as before, just scoped to the one week selected
+                    above instead of every week stacked on the page at once. */}
+                {w && (
+                  <div style={{ border: `1px solid ${C.rule}`, borderRadius: 10, padding: '12px 14px', marginBottom: 20, background: C.paper }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 7 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: C.accent }}>Week {w.week_number} goals</div>
+                      <AiEditButton roadmapId={roadmapId} kind="week"
+                        value={{ focus_theme: w.focus_theme || '', cause: w.cause || '', actions: w.actions || [], milestone: w.milestone || '' }}
+                        context={aiContext}
+                        onApply={(v) => updateWeek(w.week_number, v)} />
+                    </div>
+                    <div style={{ marginBottom: 7 }}>
+                      <div style={editLabelStyle}>Focus / macro goal</div>
+                      <input style={editInputStyle} value={w.focus_theme || ''} onChange={(e) => updateWeek(w.week_number, { focus_theme: e.target.value })} />
+                    </div>
+                    <div style={{ marginBottom: 7 }}>
+                      <div style={editLabelStyle}>Micro goals (one per line)</div>
+                      <textarea style={{ ...editInputStyle, resize: 'vertical' as const }} rows={3}
+                        value={(w.actions || []).join('\n')} onChange={(e) => updateWeek(w.week_number, { actions: e.target.value.split('\n') })} />
+                    </div>
+                    <div>
+                      <div style={editLabelStyle}>Success looks like</div>
+                      <input style={editInputStyle} value={w.milestone || ''} onChange={(e) => updateWeek(w.week_number, { milestone: e.target.value })} />
+                    </div>
+                    {w.days && w.days.length > 0 && (
+                      <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px dashed ${C.rule}` }}>
+                        <button type="button" onClick={() => toggleDayEditor(w.week_number)}
+                          style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 11, fontWeight: 700, color: C.accent }}>
+                          {openDayEditors.has(w.week_number) ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                          Edit day-by-day (Sun–Sat)
+                        </button>
+                        {openDayEditors.has(w.week_number) && (() => {
+                          const dayIndex = selectedDayIndex(w.week_number)
+                          return (
+                            <div style={{ marginTop: 8 }}>
+                              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 10 }}>
+                                {DAY_LABELS.map((day, di) => (
+                                  <button key={day} type="button" onClick={() => setDayEditorSelection((prev) => ({ ...prev, [w.week_number]: di }))}
+                                    style={{
+                                      padding: '5px 11px', borderRadius: 14, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                                      border: `1px solid ${dayIndex === di ? C.accent : C.rule}`,
+                                      background: dayIndex === di ? C.accentSoft : '#fff', color: dayIndex === di ? C.accent : C.muted,
+                                    }}>
+                                    {day.slice(0, 3)}
+                                  </button>
+                                ))}
+                              </div>
+                              {(w.actions || []).map((_, actionIndex) => (
+                                <div key={actionIndex} style={{ marginBottom: 8 }}>
+                                  <div style={{ fontSize: 10.5, color: C.muted, fontWeight: 700, marginBottom: 3 }}>Goal {actionIndex + 1} · {DAY_LABELS[dayIndex]}</div>
+                                  <textarea
+                                    value={w.days?.[dayIndex]?.[actionIndex] ?? ''}
+                                    onChange={(e) => updateDayAction(w.week_number, dayIndex, actionIndex, e.target.value)}
+                                    rows={2}
+                                    style={{ width: '100%', fontSize: 12.5, padding: '7px 9px', border: `1px solid ${C.rule}`, borderRadius: 7, fontFamily: 'inherit', resize: 'vertical' as const }}
+                                  />
+                                </div>
+                              ))}
+                            </div>
+                          )
+                        })()}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div style={{ fontSize: 11, fontWeight: 700, color: C.accent, marginBottom: 10 }}>Week {w?.week_number ?? ''} recipes</div>
                 {currentWeek != null && (
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
                     {DAY_MEAL_SLOTS.map((slot) => {
@@ -2080,78 +2150,6 @@ export default function DashboardClient({ roadmapId, patientId, data, initialChe
               </div>
               )
             })()}
-            {editable && (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
-                {months.map((m) => (
-                  <div key={m.monthNumber}>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: C.accent, marginBottom: 10 }}>{m.monthLabel} · Weeks {m.weekStart}–{m.weekEnd}</div>
-                    {m.weeks.map((w: WeeklyPlan) => (
-                      <div key={w.week_number} style={{ border: `1px solid ${C.rule}`, borderRadius: 10, padding: '12px 14px', marginBottom: 10, background: C.bg }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 7 }}>
-                          <div style={{ fontSize: 11, fontWeight: 700, color: C.accent }}>Week {w.week_number}</div>
-                          <AiEditButton roadmapId={roadmapId} kind="week"
-                            value={{ focus_theme: w.focus_theme || '', cause: w.cause || '', actions: w.actions || [], milestone: w.milestone || '' }}
-                            context={aiContext}
-                            onApply={(v) => updateWeek(w.week_number, v)} />
-                        </div>
-                        <div style={{ marginBottom: 7 }}>
-                          <div style={editLabelStyle}>Focus / macro goal</div>
-                          <input style={editInputStyle} value={w.focus_theme || ''} onChange={(e) => updateWeek(w.week_number, { focus_theme: e.target.value })} />
-                        </div>
-                        <div style={{ marginBottom: 7 }}>
-                          <div style={editLabelStyle}>Micro goals (one per line)</div>
-                          <textarea style={{ ...editInputStyle, resize: 'vertical' as const }} rows={3}
-                            value={(w.actions || []).join('\n')} onChange={(e) => updateWeek(w.week_number, { actions: e.target.value.split('\n') })} />
-                        </div>
-                        <div>
-                          <div style={editLabelStyle}>Success looks like</div>
-                          <input style={editInputStyle} value={w.milestone || ''} onChange={(e) => updateWeek(w.week_number, { milestone: e.target.value })} />
-                        </div>
-                        {w.days && w.days.length > 0 && (
-                          <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px dashed ${C.rule}` }}>
-                            <button type="button" onClick={() => toggleDayEditor(w.week_number)}
-                              style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 11, fontWeight: 700, color: C.accent }}>
-                              {openDayEditors.has(w.week_number) ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-                              Edit day-by-day (Sun–Sat)
-                            </button>
-                            {openDayEditors.has(w.week_number) && (() => {
-                              const dayIndex = selectedDayIndex(w.week_number)
-                              return (
-                                <div style={{ marginTop: 8 }}>
-                                  <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 10 }}>
-                                    {DAY_LABELS.map((day, di) => (
-                                      <button key={day} type="button" onClick={() => setDayEditorSelection((prev) => ({ ...prev, [w.week_number]: di }))}
-                                        style={{
-                                          padding: '5px 11px', borderRadius: 14, fontSize: 11, fontWeight: 700, cursor: 'pointer',
-                                          border: `1px solid ${dayIndex === di ? C.accent : C.rule}`,
-                                          background: dayIndex === di ? C.accentSoft : '#fff', color: dayIndex === di ? C.accent : C.muted,
-                                        }}>
-                                        {day.slice(0, 3)}
-                                      </button>
-                                    ))}
-                                  </div>
-                                  {(w.actions || []).map((_, actionIndex) => (
-                                    <div key={actionIndex} style={{ marginBottom: 8 }}>
-                                      <div style={{ fontSize: 10.5, color: C.muted, fontWeight: 700, marginBottom: 3 }}>Goal {actionIndex + 1} · {DAY_LABELS[dayIndex]}</div>
-                                      <textarea
-                                        value={w.days?.[dayIndex]?.[actionIndex] ?? ''}
-                                        onChange={(e) => updateDayAction(w.week_number, dayIndex, actionIndex, e.target.value)}
-                                        rows={2}
-                                        style={{ width: '100%', fontSize: 12.5, padding: '7px 9px', border: `1px solid ${C.rule}`, borderRadius: 7, fontFamily: 'inherit', resize: 'vertical' as const }}
-                                      />
-                                    </div>
-                                  ))}
-                                </div>
-                              )
-                            })()}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
 
           {/* Lifestyle guidelines */}
