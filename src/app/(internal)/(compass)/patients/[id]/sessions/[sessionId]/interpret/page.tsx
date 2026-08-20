@@ -27,6 +27,11 @@ type Roadmap = {
   duration_months: number
 }
 
+function durationLabel(months: number): string {
+  const found = DURATION_GROUPS.flatMap((g) => g.options).find((o) => o.months === months)
+  return found?.label ?? `${months} months`
+}
+
 // Two distinct program shapes, not one flat list: a single-week plan renders
 // like a checklist (see the auto-suggested "week" template in
 // DashboardClient, the only template built for a single week), while the
@@ -170,7 +175,11 @@ export default function InterpretPage() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 18, flexWrap: 'wrap', gap: 12 }}>
           <div>
             <h1 style={{ fontSize: 22, fontWeight: 700, color: '#111827' }}>Patient Dashboard</h1>
-            <p style={{ color: '#6b7280', fontSize: 13, marginTop: 3 }}>Generate → edit below → share the dashboard link with your patient</p>
+            <p style={{ color: '#6b7280', fontSize: 13, marginTop: 3 }}>
+              {roadmap
+                ? <>Live at <strong>{durationLabel(roadmap.duration_months)}</strong> · edit below → Save changes → Preview as patient</>
+                : 'Pick a duration below → Generate Dashboard → edit the preview → Save changes → Preview as patient'}
+            </p>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
             {roadmap ? (
@@ -196,10 +205,26 @@ export default function InterpretPage() {
           </div>
         </div>
 
+        {/* Always-visible, state-aware flow guidance — the old per-button
+            hover tooltips explained Refresh vs Regenerate but were easy to
+            never see; this puts the same explanation where it can't be
+            missed, and changes with whether a roadmap exists yet. */}
+        <div style={{ background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: 10, padding: '12px 16px', marginBottom: 20, fontSize: 12.5, color: '#4B5563', lineHeight: 1.6 }}>
+          {!roadmap ? (
+            <>👋 <strong>First time building this session's dashboard:</strong> pick a duration below, then click <strong>Generate Dashboard</strong>. An editable preview appears underneath — exactly what the patient will see.</>
+          ) : (
+            <>
+              🔄 <strong>Updating after a later session:</strong> pick the duration you want (same length is fine), then use{' '}
+              <strong>Refresh plan</strong> to update this exact dashboard in place — same link the patient already has, and the content it replaces is automatically saved to History first.{' '}
+              Only use <strong>Regenerate</strong> if the plan's length itself needs to change (e.g. 3 months → 12 months) and you want a brand new, separate link — it never touches this current roadmap.
+            </>
+          )}
+        </div>
+
         {/* Plan length, grouped by program shape rather than one flat list —
             a single-week plan is checklist-style, monthly options are the
             full roadmap. */}
-        <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', marginBottom: 24 }}>
+        <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', marginBottom: roadmap && duration !== roadmap.duration_months ? 10 : 24 }}>
           {DURATION_GROUPS.map((group) => (
             <div key={group.category}>
               <div style={{ fontSize: 10.5, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 6 }}>{group.category}</div>
@@ -214,6 +239,27 @@ export default function InterpretPage() {
             </div>
           ))}
         </div>
+
+        {/* The duration picker alone changes nothing — it's silent otherwise,
+            which read as "I clicked Week 1 and nothing happened." This makes
+            the pending, not-yet-applied selection and its next step explicit. */}
+        {roadmap && duration !== roadmap.duration_months && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 10, padding: '10px 14px', marginBottom: 24, fontSize: 12.5, color: '#92400E' }}>
+            <span>
+              You selected <strong>{durationLabel(duration)}</strong> — the live dashboard is still <strong>{durationLabel(roadmap.duration_months)}</strong> until you apply it.
+            </span>
+            <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+              <button onClick={refreshPlan} disabled={loading}
+                style={{ padding: '6px 12px', borderRadius: 7, border: 'none', background: '#538A22', color: '#fff', fontSize: 12, fontWeight: 700, cursor: loading ? 'not-allowed' : 'pointer' }}>
+                Refresh plan (same link)
+              </button>
+              <button onClick={regeneratePlan} disabled={loading}
+                style={{ padding: '6px 12px', borderRadius: 7, border: '1px solid #D1D5DB', background: '#fff', color: '#6b7280', fontSize: 12, fontWeight: 700, cursor: loading ? 'not-allowed' : 'pointer' }}>
+                Regenerate (new link)
+              </button>
+            </div>
+          </div>
+        )}
 
         {error && <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 8, padding: '10px 14px', color: '#dc2626', fontSize: 13, marginBottom: 16 }}>{error}</div>}
         {loading && <div style={{ background: '#F2F9EC', borderRadius: 8, padding: '12px 16px', fontSize: 13, color: '#538A22', marginBottom: 16 }}>🔍 Searching KB → 🧠 Interpreting → ✍️ Writing plan (~30s)...</div>}
